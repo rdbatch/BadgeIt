@@ -177,6 +177,7 @@ describe('EditProfilePage /api/profile/me', () => {
 
     expect(screen.getByRole('button', { name: 'QR Code' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Preview' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '3D Print' })).toBeEnabled()
   })
 
   it('disables QR/Preview until a first save assigns a profile id for a new user', async () => {
@@ -211,12 +212,49 @@ describe('EditProfilePage /api/profile/me', () => {
     })
 
     expect(screen.getByRole('button', { name: 'QR Code' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '3D Print' })).toBeDisabled()
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'QR Code' })).toBeEnabled()
     })
+  })
+})
+
+describe('EditProfilePage 3D print modal', () => {
+  afterEach(() => {
+    sessionStorage.clear()
+  })
+
+  it('opens the 3D print customizer from the 3D Print button', async () => {
+    seedSession()
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          id: 'a1b2c3d4e5f6',
+          email: 'test@example.com',
+          theme: 'light',
+          display_email: true,
+          links: [],
+          created_at: '2024-01-01T00:00:00Z',
+          updated_at: '2024-01-01T00:00:00Z',
+        }),
+    })
+
+    renderEditPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '3D Print' })).toBeEnabled()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '3D Print' }))
+
+    expect(screen.getByText('3D Print Your QR Code')).toBeInTheDocument()
+    expect(screen.getByLabelText('Size')).toBeInTheDocument()
   })
 })
 

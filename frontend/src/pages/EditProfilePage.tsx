@@ -4,6 +4,7 @@ import { useAuth } from '../auth'
 import { themes } from '../constants/themes'
 import { getPlatformLabel } from '../components/SocialIcons'
 import { QRModal } from '../components/QRModal'
+import { Print3DModal } from '../components/Print3DModal'
 import { getRuntimeConfig } from '../config/runtimeConfig'
 import type { SocialLink, SocialPlatform, ThemeId } from '../types/profile'
 
@@ -38,6 +39,7 @@ export function EditProfilePage() {
   const [deleteEmail, setDeleteEmail] = useState('')
   const [isDeleting, setIsDeleting] = useState(false)
   const [showQRModal, setShowQRModal] = useState(false)
+  const [showPrint3DModal, setShowPrint3DModal] = useState(false)
   const [profileId, setProfileId] = useState('')
 
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -509,7 +511,7 @@ export function EditProfilePage() {
           )}
 
           {/* Action Buttons */}
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             <button
               type="submit"
               disabled={isSaving}
@@ -524,6 +526,14 @@ export function EditProfilePage() {
               className={`rounded-lg border border-current/20 px-4 py-3 text-sm font-medium transition-opacity hover:opacity-80 disabled:opacity-50 ${activeTheme.text}`}
             >
               QR Code
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowPrint3DModal(true)}
+              disabled={!profileId}
+              className={`rounded-lg border border-current/20 px-4 py-3 text-sm font-medium transition-opacity hover:opacity-80 disabled:opacity-50 ${activeTheme.text}`}
+            >
+              3D Print
             </button>
             <button
               type="button"
@@ -603,6 +613,16 @@ export function EditProfilePage() {
             isOpen={showQRModal}
             onClose={() => setShowQRModal(false)}
             imageUrl={imagePreview ?? undefined}
+          />
+        )}
+
+        {/* 3D Print Modal — owner-only, so it lives here and not on the
+            public card page's QR view. */}
+        {profileId && (
+          <Print3DModal
+            profileId={profileId}
+            isOpen={showPrint3DModal}
+            onClose={() => setShowPrint3DModal(false)}
           />
         )}
       </div>
