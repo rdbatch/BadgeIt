@@ -66,13 +66,13 @@ jobs:
         with:
           workspaces: backend
 
-      - name: Install cargo-lambda
-        run: curl -fsSL https://cargo-lambda.info/install.sh | sh
-
       - name: Install Zig (cargo-lambda's linker for Lambda targets)
         uses: mlugg/setup-zig@v2
         with:
           version: "0.13.0"
+
+      - name: Install cargo-lambda
+        run: curl -fsSL https://cargo-lambda.info/install.sh | sh
 
       - name: Build Lambda binaries (arm64)
         working-directory: backend
