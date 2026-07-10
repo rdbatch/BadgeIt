@@ -262,11 +262,11 @@ impl ProfileStore {
         }
 
         // Preserve image_key if it exists
-        if let Some(ref existing_profile) = existing {
-            if existing_profile.image_url.is_some() {
-                let image_key = format!("images/{profile_id}");
-                item.insert("image_key".to_string(), AttributeValue::S(image_key));
-            }
+        if let Some(ref existing_profile) = existing
+            && existing_profile.image_url.is_some()
+        {
+            let image_key = format!("images/{profile_id}");
+            item.insert("image_key".to_string(), AttributeValue::S(image_key));
         }
 
         // Write profile item

@@ -39,10 +39,10 @@ impl JwksCache {
     async fn get(&self, jwks_url: &str) -> Result<Arc<JwkSet>, AppError> {
         {
             let guard = self.inner.read().await;
-            if let Some((fetched_at, jwks)) = guard.as_ref() {
-                if fetched_at.elapsed() < JWKS_CACHE_TTL {
-                    return Ok(jwks.clone());
-                }
+            if let Some((fetched_at, jwks)) = guard.as_ref()
+                && fetched_at.elapsed() < JWKS_CACHE_TTL
+            {
+                return Ok(jwks.clone());
             }
         }
 

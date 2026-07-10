@@ -1,4 +1,11 @@
 name: Build
+
+# Runs on every push and PR to validate that frontend, backend, and infra
+# all build and pass tests. No AWS credentials are used in this workflow.
+#
+# Uses arm64 GitHub-hosted runners (ubuntu-24.04-arm) so the backend builds
+# and tests natively on the same architecture as the Graviton/ARM Lambda
+# target, and to match the deploy workflow's runner architecture.
 on:
   push:
     branches: [main]
@@ -73,14 +80,31 @@ jobs:
       - name: Build Lambda binaries (arm64)
         run: cargo lambda build --release --arm64 --bin api --bin pre_sign_up
 
+      - name: Upload Lambda binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: lambda-binaries
+          path: backend/target/lambda
+          retention-days: 1
+
   infra:
     name: Infra (build, test, synth)
+    needs: backend
     runs-on: ubuntu-24.04-arm
     defaults:
       run:
         working-directory: infra
     steps:
       - uses: actions/checkout@v4
+
+      # The CDK stacks reference backend/target/lambda/{api,pre_sign_up} as
+      # Lambda asset directories, so synth/tests need real (even if not
+      # fully functional) binaries on disk to stage as assets.
+      - name: Download Lambda binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: lambda-binaries
+          path: backend/target/lambda
 
       - uses: actions/setup-node@v4
         with:
@@ -98,4 +122,4 @@ jobs:
         run: npm run test
 
       - name: CDK synth (sanity check, no AWS credentials required)
-        run: npx cdk synth --context environment=dev --context region=us-east-2 --all
+        run: npx cdk synth --context environment=dev --context region=us-east-2

@@ -59,12 +59,12 @@ impl SocialLink {
             return Err("Link URL must start with http:// or https://".to_string());
         }
 
-        if let Some(ref label) = self.label {
-            if label.len() > MAX_LINK_LABEL_LEN {
-                return Err(format!(
-                    "Link label must be {MAX_LINK_LABEL_LEN} characters or less"
-                ));
-            }
+        if let Some(ref label) = self.label
+            && label.len() > MAX_LINK_LABEL_LEN
+        {
+            return Err(format!(
+                "Link label must be {MAX_LINK_LABEL_LEN} characters or less"
+            ));
         }
 
         Ok(())
@@ -159,26 +159,26 @@ impl ProfileUpdateRequest {
     /// Validates all free-text field lengths and link URLs. Called by the
     /// router before any write to the store.
     pub fn validate(&self) -> Result<(), String> {
-        if let Some(ref name) = self.display_name {
-            if name.len() > MAX_DISPLAY_NAME_LEN {
-                return Err(format!(
-                    "Display name must be {MAX_DISPLAY_NAME_LEN} characters or less"
-                ));
-            }
+        if let Some(ref name) = self.display_name
+            && name.len() > MAX_DISPLAY_NAME_LEN
+        {
+            return Err(format!(
+                "Display name must be {MAX_DISPLAY_NAME_LEN} characters or less"
+            ));
         }
 
-        if let Some(ref tagline) = self.tagline {
-            if tagline.len() > MAX_TAGLINE_LEN {
-                return Err(format!(
-                    "Tagline must be {MAX_TAGLINE_LEN} characters or less"
-                ));
-            }
+        if let Some(ref tagline) = self.tagline
+            && tagline.len() > MAX_TAGLINE_LEN
+        {
+            return Err(format!(
+                "Tagline must be {MAX_TAGLINE_LEN} characters or less"
+            ));
         }
 
-        if let Some(ref phone) = self.phone {
-            if phone.len() > MAX_PHONE_LEN {
-                return Err(format!("Phone must be {MAX_PHONE_LEN} characters or less"));
-            }
+        if let Some(ref phone) = self.phone
+            && phone.len() > MAX_PHONE_LEN
+        {
+            return Err(format!("Phone must be {MAX_PHONE_LEN} characters or less"));
         }
 
         if self.links.len() > MAX_LINKS {
