@@ -18,6 +18,11 @@ on:
         default: us-east-2
         options:
           - us-east-2
+      branch:
+        description: Branch to deploy (uses latest successful build from this branch)
+        type: string
+        required: true
+        default: main
 
 permissions:
   id-token: write # required for OIDC -> AWS credential exchange
@@ -41,6 +46,8 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -63,7 +70,7 @@ jobs:
         uses: dawidd6/action-download-artifact@v21
         with:
           workflow: build.yml
-          branch: main
+          branch: ${{ inputs.branch }}
           name: lambda-binaries
           path: backend/target/lambda
           workflow_conclusion: success
@@ -137,5 +144,6 @@ jobs:
           SITE_URL=$(jq -r ".\"BadgeIt-Frontend-${ENVIRONMENT}\".DistributionUrl" cdk-outputs.json)
           echo "### Deployment complete :rocket:" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Environment:** ${ENVIRONMENT}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Branch:** ${{ inputs.branch }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Region:** ${REGION}" >> "$GITHUB_STEP_SUMMARY"
           echo "- **URL:** ${SITE_URL}" >> "$GITHUB_STEP_SUMMARY"
