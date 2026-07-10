@@ -112,7 +112,7 @@ export function computeMinSizeMm(
 }
 
 /** Simple indexed triangle mesh; vertices and triangles are flat arrays. */
-interface Mesh {
+export interface Mesh {
   vertices: number[]
   triangles: number[]
 }
@@ -225,47 +225,17 @@ function meshXml(mesh: Mesh): string {
 }
 
 /**
- * Builds the .3mf file (a zip archive per the 3MF spec) and returns its
- * bytes. Throws RangeError when options fall outside printable limits.
+ * Builds the two meshes that make up the model — the base plate (with
+ * optional lanyard tab) and the raised QR relief — in a shared coordinate
+ * space. Used by the .3mf exporter and by the on-screen preview, so what
+ * the preview shows is exactly what the slicer will import. Does not
+ * validate ranges; generateQr3mf does that before packaging.
  */
-export function generateQr3mf(
+export function buildQr3mfMeshes(
   text: string,
   options: Qr3mfOptions,
-): Uint8Array<ArrayBuffer> {
+): { base: Mesh; qr: Mesh } {
   const { sizeMm, thicknessMm, lanyardLoop, quietZoneComponents, reliefMm } = options
-  const minSize = computeMinSizeMm(text, quietZoneComponents)
-  if (!Number.isFinite(sizeMm) || sizeMm < minSize || sizeMm > QR3MF_LIMITS.maxSizeMm) {
-    throw new RangeError(
-      `sizeMm must be between ${minSize} and ${QR3MF_LIMITS.maxSizeMm}, got ${sizeMm}`,
-    )
-  }
-  if (
-    !Number.isFinite(thicknessMm) ||
-    thicknessMm < QR3MF_LIMITS.minThicknessMm ||
-    thicknessMm > QR3MF_LIMITS.maxThicknessMm
-  ) {
-    throw new RangeError(
-      `thicknessMm must be between ${QR3MF_LIMITS.minThicknessMm} and ${QR3MF_LIMITS.maxThicknessMm}, got ${thicknessMm}`,
-    )
-  }
-  if (
-    !Number.isFinite(quietZoneComponents) ||
-    quietZoneComponents < QR3MF_LIMITS.minQuietZoneComponents ||
-    quietZoneComponents > QR3MF_LIMITS.maxQuietZoneComponents
-  ) {
-    throw new RangeError(
-      `quietZoneComponents must be between ${QR3MF_LIMITS.minQuietZoneComponents} and ${QR3MF_LIMITS.maxQuietZoneComponents}, got ${quietZoneComponents}`,
-    )
-  }
-  if (
-    !Number.isFinite(reliefMm) ||
-    reliefMm < QR3MF_LIMITS.minReliefMm ||
-    reliefMm > QR3MF_LIMITS.maxReliefMm
-  ) {
-    throw new RangeError(
-      `reliefMm must be between ${QR3MF_LIMITS.minReliefMm} and ${QR3MF_LIMITS.maxReliefMm}, got ${reliefMm}`,
-    )
-  }
 
   const matrix = qrMatrix(text)
   const n = matrix.length
@@ -312,6 +282,54 @@ export function generateQr3mf(
       c = end
     }
   }
+
+  return { base: baseMesh, qr: qrMesh }
+}
+
+/**
+ * Builds the .3mf file (a zip archive per the 3MF spec) and returns its
+ * bytes. Throws RangeError when options fall outside printable limits.
+ */
+export function generateQr3mf(
+  text: string,
+  options: Qr3mfOptions,
+): Uint8Array<ArrayBuffer> {
+  const { sizeMm, thicknessMm, quietZoneComponents, reliefMm } = options
+  const minSize = computeMinSizeMm(text, quietZoneComponents)
+  if (!Number.isFinite(sizeMm) || sizeMm < minSize || sizeMm > QR3MF_LIMITS.maxSizeMm) {
+    throw new RangeError(
+      `sizeMm must be between ${minSize} and ${QR3MF_LIMITS.maxSizeMm}, got ${sizeMm}`,
+    )
+  }
+  if (
+    !Number.isFinite(thicknessMm) ||
+    thicknessMm < QR3MF_LIMITS.minThicknessMm ||
+    thicknessMm > QR3MF_LIMITS.maxThicknessMm
+  ) {
+    throw new RangeError(
+      `thicknessMm must be between ${QR3MF_LIMITS.minThicknessMm} and ${QR3MF_LIMITS.maxThicknessMm}, got ${thicknessMm}`,
+    )
+  }
+  if (
+    !Number.isFinite(quietZoneComponents) ||
+    quietZoneComponents < QR3MF_LIMITS.minQuietZoneComponents ||
+    quietZoneComponents > QR3MF_LIMITS.maxQuietZoneComponents
+  ) {
+    throw new RangeError(
+      `quietZoneComponents must be between ${QR3MF_LIMITS.minQuietZoneComponents} and ${QR3MF_LIMITS.maxQuietZoneComponents}, got ${quietZoneComponents}`,
+    )
+  }
+  if (
+    !Number.isFinite(reliefMm) ||
+    reliefMm < QR3MF_LIMITS.minReliefMm ||
+    reliefMm > QR3MF_LIMITS.maxReliefMm
+  ) {
+    throw new RangeError(
+      `reliefMm must be between ${QR3MF_LIMITS.minReliefMm} and ${QR3MF_LIMITS.maxReliefMm}, got ${reliefMm}`,
+    )
+  }
+
+  const { base: baseMesh, qr: qrMesh } = buildQr3mfMeshes(text, options)
 
   const model =
     `<?xml version="1.0" encoding="UTF-8"?>` +

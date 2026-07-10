@@ -1,5 +1,6 @@
 import { unzipSync, strFromU8 } from 'fflate'
 import {
+  buildQr3mfMeshes,
   computeMinSizeMm,
   computeModuleCount,
   DEFAULT_QUIET_ZONE_COMPONENTS,
@@ -295,5 +296,41 @@ describe('generateQr3mf', () => {
         reliefMm: QR3MF_LIMITS.maxReliefMm + 0.1,
       }),
     ).toThrow(RangeError)
+  })
+})
+
+describe('buildQr3mfMeshes', () => {
+  it('produces the same geometry the .3mf exporter packages', () => {
+    const meshes = buildQr3mfMeshes(TEST_URL, VALID_OPTIONS)
+    const { objects } = parseModel(generateQr3mf(TEST_URL, VALID_OPTIONS))
+    const [base, qr] = objects
+
+    expect(meshes.base.vertices.length / 3).toBe(base.mesh.vertices.length)
+    expect(meshes.base.triangles.length / 3).toBe(base.mesh.triangles.length)
+    expect(meshes.qr.vertices.length / 3).toBe(qr.mesh.vertices.length)
+    expect(meshes.qr.triangles.length / 3).toBe(qr.mesh.triangles.length)
+  })
+
+  it('raises the QR relief above the base plate', () => {
+    const meshes = buildQr3mfMeshes(TEST_URL, VALID_OPTIONS)
+    let minZ = Infinity
+    let maxZ = -Infinity
+    for (let i = 2; i < meshes.qr.vertices.length; i += 3) {
+      minZ = Math.min(minZ, meshes.qr.vertices[i])
+      maxZ = Math.max(maxZ, meshes.qr.vertices[i])
+    }
+    expect(minZ).toBe(VALID_OPTIONS.thicknessMm)
+    expect(maxZ).toBeCloseTo(VALID_OPTIONS.thicknessMm + VALID_OPTIONS.reliefMm)
+  })
+
+  it('only adds the lanyard tab when requested', () => {
+    const withLoop = buildQr3mfMeshes(TEST_URL, VALID_OPTIONS)
+    const without = buildQr3mfMeshes(TEST_URL, {
+      ...VALID_OPTIONS,
+      lanyardLoop: false,
+    })
+    // A bare plate is a single box: 8 corner vertices.
+    expect(without.base.vertices.length / 3).toBe(8)
+    expect(withLoop.base.vertices.length / 3).toBeGreaterThan(8)
   })
 })

@@ -32,6 +32,15 @@ describe('Print3DModal', () => {
     ).toBeInTheDocument()
   })
 
+  it('renders the live preview region', async () => {
+    renderModal()
+    // The preview is lazy-loaded; in jsdom (no WebGL) it resolves to its
+    // fallback message once the chunk loads.
+    expect(
+      await screen.findByText(/preview isn't available/i),
+    ).toBeInTheDocument()
+  })
+
   it('uses plain "square" language rather than QR jargon like "module"/"component"', () => {
     renderModal()
     expect(screen.queryByText(/module/i)).not.toBeInTheDocument()

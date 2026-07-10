@@ -32,6 +32,16 @@ npm install
 npm run dev
 ```
 
+To run fully locally with no AWS resources, use mock mode:
+
+```bash
+npm run dev:mock
+```
+
+Mock mode stubs Cognito and the profile API at the fetch boundary with a
+localStorage-backed demo profile — any email and any verification code
+signs in.
+
 ### Backend
 
 Requires the `aarch64-unknown-linux-gnu` target and [`cargo-lambda`](https://www.cargo-lambda.info/):
