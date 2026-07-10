@@ -10,6 +10,13 @@ on:
   push:
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build'
+        required: true
+        default: 'main'
+        type: string
 
 permissions:
   contents: read
@@ -23,6 +30,8 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch || github.ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -50,6 +59,8 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch || github.ref }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -97,6 +108,8 @@ jobs:
         working-directory: infra
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch || github.ref }}
 
       # The CDK stacks reference backend/target/lambda/{api,pre_sign_up} as
       # Lambda asset directories, so synth/tests need the real release
