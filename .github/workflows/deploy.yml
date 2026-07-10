@@ -67,10 +67,12 @@ jobs:
           workspaces: backend
 
       - name: Install cargo-lambda
-        uses: jaxxstorm/action-install-gh-release@v1.12.0
+        run: curl -fsSL https://cargo-lambda.info/install.sh | sh
+
+      - name: Install Zig (cargo-lambda's linker for Lambda targets)
+        uses: mlugg/setup-zig@v2
         with:
-          repo: cargo-lambda/cargo-lambda
-          tag: v1.8.3
+          version: "0.13.0"
 
       - name: Build Lambda binaries (arm64)
         working-directory: backend
