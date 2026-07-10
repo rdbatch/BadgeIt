@@ -8,7 +8,6 @@ name: Build
 # target, and to match the deploy workflow's runner architecture.
 on:
   push:
-    branches: [main]
   pull_request:
     branches: [main]
 
