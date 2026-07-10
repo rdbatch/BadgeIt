@@ -1,0 +1,144 @@
+name: Deploy
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        required: true
+        default: dev
+        options:
+          - dev
+          - prod
+      region:
+        description: AWS region to deploy into
+        type: choice
+        required: true
+        default: us-east-2
+        options:
+          - us-east-2
+
+permissions:
+  id-token: write # required for OIDC -> AWS credential exchange
+  contents: read
+
+env:
+  ENVIRONMENT: ${{ inputs.environment }}
+  REGION: ${{ inputs.region }}
+
+jobs:
+  deploy:
+    name: Deploy (${{ inputs.environment }})
+    runs-on: ubuntu-24.04-arm
+    # Maps to a GitHub Environment of the same name, which holds the
+    # per-environment AWS_ACCOUNT_ID, OIDC role ARN, and can enforce
+    # required reviewers (recommended for `prod`).
+    environment: ${{ inputs.environment }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ inputs.region }}
+          role-session-name: gha-badgeit-deploy-${{ inputs.environment }}
+
+      - name: Verify caller is in the expected account
+        run: |
+          CALLER_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          EXPECTED_ACCOUNT="${{ vars.AWS_ACCOUNT_ID }}"
+          if [[ "$CALLER_ACCOUNT" != "$EXPECTED_ACCOUNT" ]]; then
+            echo "::error::Assumed role resolved to account $CALLER_ACCOUNT, expected $EXPECTED_ACCOUNT for environment '$ENVIRONMENT'." >&2
+            exit 1
+          fi
+          echo "Authenticated in account $CALLER_ACCOUNT for environment '$ENVIRONMENT'"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+
+      - name: Install cargo-lambda
+        uses: jaxxstorm/action-install-gh-release@v1.12.0
+        with:
+          repo: cargo-lambda/cargo-lambda
+          tag: v1.8.3
+
+      - name: Build Lambda binaries (arm64)
+        working-directory: backend
+        run: cargo lambda build --release --arm64 --bin api --bin pre_sign_up
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Install infra dependencies
+        working-directory: infra
+        run: npm ci
+
+      - name: Deploy backend stacks (Data, Auth, Api)
+        working-directory: infra
+        run: |
+          npx cdk deploy \
+            "BadgeIt-Data-${ENVIRONMENT}" \
+            "BadgeIt-Auth-${ENVIRONMENT}" \
+            "BadgeIt-Api-${ENVIRONMENT}" \
+            --context environment="$ENVIRONMENT" \
+            --context region="$REGION" \
+            --context account="${{ vars.AWS_ACCOUNT_ID }}" \
+            --require-approval never \
+            --outputs-file cdk-outputs.json
+
+      - name: Write runtime config.json
+        working-directory: infra
+        run: |
+          USER_POOL_ID=$(jq -r ".\"BadgeIt-Auth-${ENVIRONMENT}\".UserPoolId" cdk-outputs.json)
+          USER_POOL_CLIENT_ID=$(jq -r ".\"BadgeIt-Auth-${ENVIRONMENT}\".UserPoolClientId" cdk-outputs.json)
+
+          cat > ../frontend/dist/config.json <<EOF
+          {
+            "region": "${REGION}",
+            "userPoolId": "${USER_POOL_ID}",
+            "userPoolClientId": "${USER_POOL_CLIENT_ID}",
+            "apiBase": ""
+          }
+          EOF
+
+      - name: Deploy frontend stack
+        working-directory: infra
+        run: |
+          npx cdk deploy \
+            "BadgeIt-Frontend-${ENVIRONMENT}" \
+            --exclusively \
+            --context environment="$ENVIRONMENT" \
+            --context region="$REGION" \
+            --context account="${{ vars.AWS_ACCOUNT_ID }}" \
+            --context "domainName=${{ vars.DOMAIN_NAME }}" \
+            --context "certificateArn=${{ vars.CERTIFICATE_ARN }}" \
+            --require-approval never \
+            --outputs-file cdk-outputs.json
+
+      - name: Summary
+        working-directory: infra
+        run: |
+          SITE_URL=$(jq -r ".\"BadgeIt-Frontend-${ENVIRONMENT}\".DistributionUrl" cdk-outputs.json)
+          echo "### Deployment complete :rocket:" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Environment:** ${ENVIRONMENT}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Region:** ${REGION}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **URL:** ${SITE_URL}" >> "$GITHUB_STEP_SUMMARY"

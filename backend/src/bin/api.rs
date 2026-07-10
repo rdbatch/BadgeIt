@@ -1,0 +1,58 @@
+use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse};
+use lambda_runtime::{Error, LambdaEvent, service_fn};
+use tracing_subscriber::EnvFilter;
+
+use badgeit_backend::auth::AuthConfig;
+use badgeit_backend::router::route;
+use badgeit_backend::store::ProfileStore;
+
+struct AppState {
+    store: ProfileStore,
+    auth_config: AuthConfig,
+}
+
+async fn handler(
+    state: &AppState,
+    event: LambdaEvent<ApiGatewayV2httpRequest>,
+) -> Result<ApiGatewayV2httpResponse, Error> {
+    let (request, _context) = event.into_parts();
+    let response = route(&request, &state.store, &state.auth_config).await;
+    Ok(response)
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Error> {
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .json()
+        .init();
+
+    let config = aws_config::load_from_env().await;
+    let dynamo_client = aws_sdk_dynamodb::Client::new(&config);
+    let s3_client = aws_sdk_s3::Client::new(&config);
+
+    let table_name = std::env::var("TABLE_NAME").expect("TABLE_NAME env var is required");
+    let bucket_name = std::env::var("BUCKET_NAME").expect("BUCKET_NAME env var is required");
+    let image_base_url =
+        std::env::var("IMAGE_BASE_URL").expect("IMAGE_BASE_URL env var is required");
+    let user_pool_id = std::env::var("USER_POOL_ID").expect("USER_POOL_ID env var is required");
+    let user_pool_client_id =
+        std::env::var("USER_POOL_CLIENT_ID").expect("USER_POOL_CLIENT_ID env var is required");
+    let region = std::env::var("AWS_REGION")
+        .or_else(|_| std::env::var("AWS_DEFAULT_REGION"))
+        .expect("AWS_REGION env var is required");
+
+    let store = ProfileStore::new(
+        dynamo_client,
+        s3_client,
+        table_name,
+        bucket_name,
+        image_base_url,
+    );
+
+    let auth_config = AuthConfig::new(user_pool_id, region, user_pool_client_id);
+
+    let state = AppState { store, auth_config };
+
+    lambda_runtime::run(service_fn(|event| handler(&state, event))).await
+}
