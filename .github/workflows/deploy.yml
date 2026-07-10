@@ -21,6 +21,7 @@ on:
 permissions:
   id-token: write # required for OIDC -> AWS credential exchange
   contents: read
+  actions: read # required to fetch the Build workflow's artifact
 
 env:
   ENVIRONMENT: ${{ inputs.environment }}
@@ -57,26 +58,19 @@ jobs:
           fi
           echo "Authenticated in account $CALLER_ACCOUNT for environment '$ENVIRONMENT'"
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Download Lambda binaries from latest successful Build run
+        uses: dawidd6/action-download-artifact@v21
         with:
-          targets: aarch64-unknown-linux-gnu
+          workflow: build.yml
+          branch: main
+          name: lambda-binaries
+          path: backend/target/lambda
+          workflow_conclusion: success
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: backend
-
-      - name: Install Zig (cargo-lambda's linker for Lambda targets)
-        uses: mlugg/setup-zig@v2
-        with:
-          version: "0.13.0"
-
-      - name: Install cargo-lambda
-        run: curl -fsSL https://cargo-lambda.info/install.sh | sh
-
-      - name: Build Lambda binaries (arm64)
-        working-directory: backend
-        run: cargo lambda build --release --arm64 --bin api --bin pre_sign_up
+      # upload-artifact/download-artifact don't preserve the executable
+      # bit, so it must be restored before CDK zips these up as assets.
+      - name: Restore executable bit on Lambda bootstrap binaries
+        run: chmod +x backend/target/lambda/*/bootstrap
 
       - uses: actions/setup-node@v4
         with:

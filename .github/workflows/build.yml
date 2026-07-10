@@ -79,15 +79,15 @@ jobs:
       - name: Install cargo-lambda
         run: curl -fsSL https://cargo-lambda.info/install.sh | sh
 
-      - name: Build Lambda binaries (arm64, debug — CI validation only, not deployed)
-        run: cargo lambda build --arm64 --bin api --bin pre_sign_up
+      - name: Build Lambda binaries (arm64, release)
+        run: cargo lambda build --release --arm64 --bin api --bin pre_sign_up
 
       - name: Upload Lambda binaries
         uses: actions/upload-artifact@v4
         with:
           name: lambda-binaries
           path: backend/target/lambda
-          retention-days: 1
+          retention-days: 14
 
   infra:
     name: Infra (build, test, synth)
@@ -100,13 +100,18 @@ jobs:
       - uses: actions/checkout@v4
 
       # The CDK stacks reference backend/target/lambda/{api,pre_sign_up} as
-      # Lambda asset directories, so synth/tests need real (even if not
-      # fully functional) binaries on disk to stage as assets.
+      # Lambda asset directories, so synth/tests need the real release
+      # binaries on disk to stage as assets.
       - name: Download Lambda binaries
         uses: actions/download-artifact@v4
         with:
           name: lambda-binaries
           path: backend/target/lambda
+
+      # upload-artifact/download-artifact don't preserve the executable
+      # bit, so it must be restored before CDK zips these up as assets.
+      - name: Restore executable bit on Lambda bootstrap binaries
+        run: chmod +x ../backend/target/lambda/*/bootstrap
 
       - uses: actions/setup-node@v4
         with:
