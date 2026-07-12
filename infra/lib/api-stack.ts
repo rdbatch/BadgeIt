@@ -5,6 +5,7 @@ import * as s3 from "aws-cdk-lib/aws-s3";
 import * as ssm from "aws-cdk-lib/aws-ssm";
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
+import * as logs from "aws-cdk-lib/aws-logs";
 import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import { Construct } from "constructs";
 import { dataStackParamPaths } from "./data-stack";
@@ -101,6 +102,11 @@ export class ApiStack extends cdk.Stack {
       authParamPaths.userPoolClientId,
     );
 
+    const apiFnLogGroup = new logs.LogGroup(this, "ApiFnLogGroup", {
+      logGroupName: `/aws/lambda/badgeit-api-${environment}`,
+      retention: logs.RetentionDays.TWO_WEEKS,
+    });
+
     // Rust Lambda function (ARM64 Graviton)
     const apiFn = new lambda.Function(this, "ApiFn", {
       functionName: `badgeit-api-${environment}`,
@@ -110,6 +116,7 @@ export class ApiStack extends cdk.Stack {
       code: lambda.Code.fromAsset("../backend/target/lambda/api"),
       timeout: cdk.Duration.seconds(30),
       memorySize: 256,
+      logGroup: apiFnLogGroup,
       environment: {
         TABLE_NAME: table.tableName,
         BUCKET_NAME: imageBucket.bucketName,
@@ -326,7 +333,7 @@ export class ApiStack extends cdk.Stack {
 
     new ssm.StringParameter(this, "LogGroupNameParam", {
       parameterName: apiStackParamPaths(environment).logGroupName,
-      stringValue: apiFn.logGroup.logGroupName,
+      stringValue: apiFnLogGroup.logGroupName,
     });
 
     // Output retained for human visibility (console/CLI) only — no
