@@ -216,16 +216,24 @@ describe("FrontendStack", () => {
       });
     });
 
-    test("has no-cache behavior for /config.json", () => {
+    test("does not have a dedicated cache behavior for /config.json (stays under the 5-behavior cap; falls through to the default S3 behavior)", () => {
       template.hasResourceProperties("AWS::CloudFront::Distribution", {
         DistributionConfig: {
-          CacheBehaviors: Match.arrayWith([
-            Match.objectLike({
-              PathPattern: "/config.json",
-              CachePolicyId: Match.anyValue(),
-            }),
-          ]),
+          CacheBehaviors: Match.not(
+            Match.arrayWith([
+              Match.objectLike({
+                PathPattern: "/config.json",
+              }),
+            ]),
+          ),
         },
+      });
+    });
+
+    test("deploys index.html and config.json with no-cache, must-revalidate headers and an explicit invalidation", () => {
+      template.hasResourceProperties("Custom::CDKBucketDeployment", {
+        DistributionPaths: ["/index.html", "/config.json"],
+        SystemMetadata: { "cache-control": "no-cache, must-revalidate" },
       });
     });
 

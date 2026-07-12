@@ -193,9 +193,19 @@ describe("ApiStack", () => {
   });
 
   describe("Observability", () => {
-    test("creates a CloudWatch dashboard", () => {
-      template.hasResourceProperties("AWS::CloudWatch::Dashboard", {
-        DashboardName: "badgeit-test",
+    test("does not create a CloudWatch dashboard (that lives in MonitoringStack)", () => {
+      template.resourceCountIs("AWS::CloudWatch::Dashboard", 0);
+    });
+
+    test("publishes the API id, Lambda function name, and log group name to SSM for MonitoringStack to consume", () => {
+      template.hasResourceProperties("AWS::SSM::Parameter", {
+        Name: "/badgeit/test/api/api-id",
+      });
+      template.hasResourceProperties("AWS::SSM::Parameter", {
+        Name: "/badgeit/test/api/function-name",
+      });
+      template.hasResourceProperties("AWS::SSM::Parameter", {
+        Name: "/badgeit/test/api/log-group-name",
       });
     });
 
@@ -232,16 +242,6 @@ describe("ApiStack", () => {
       });
     });
 
-    test("dashboard includes a Logs Insights widget querying for profile_created", () => {
-      const dashboard = template.findResources("AWS::CloudWatch::Dashboard");
-      const body = Object.values(dashboard)[0].Properties.DashboardBody;
-      // DashboardBody is a Fn::Join'd JSON string in the synthesized
-      // template — assert the query text appears somewhere in its parts
-      // rather than parsing the whole Fn::Join expression.
-      const joined = JSON.stringify(body);
-      expect(joined).toContain("profile_created");
-      expect(joined).toContain("public_card_view");
-    });
   });
 
   describe("siteUrl prop", () => {
