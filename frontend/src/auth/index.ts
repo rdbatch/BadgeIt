@@ -1,4 +1,5 @@
-export { AuthProvider, useAuth } from './context'
+export { AuthProvider } from './context'
+export { useAuth } from './useAuth'
 export {
   initiateAuth,
   respondToChallenge,

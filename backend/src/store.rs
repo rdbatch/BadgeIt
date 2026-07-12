@@ -1,19 +1,25 @@
+use aws_sdk_cognitoidentityprovider::Client as CognitoClient;
 use aws_sdk_dynamodb::Client as DynamoClient;
 use aws_sdk_dynamodb::types::AttributeValue;
 use aws_sdk_s3::Client as S3Client;
 
 use crate::error::AppError;
-use crate::models::{Profile, ProfileUpdateRequest, SocialLink, SocialPlatform, ThemeId};
-use crate::profile_id::generate_profile_id;
+use crate::models::{
+    Connection, ConnectionCreateRequest, ConnectionUpdateRequest, CustomTheme, Profile,
+    ProfileUpdateRequest, SocialLink, SocialPlatform, ThemeId,
+};
+use crate::profile_id::{generate_connection_id, generate_profile_id};
 
 const PROFILE_SK: &str = "PROFILE";
 const LINK_PREFIX: &str = "LINK#";
 const EMAIL_POINTER_SK: &str = "POINTER";
+const CONNECTION_PREFIX: &str = "CONNECTION#";
 
 /// Data access layer for profile operations.
 pub struct ProfileStore {
     dynamo: DynamoClient,
     s3: S3Client,
+    cognito: CognitoClient,
     table_name: String,
     bucket_name: String,
     image_base_url: String,
@@ -23,6 +29,7 @@ impl ProfileStore {
     pub fn new(
         dynamo: DynamoClient,
         s3: S3Client,
+        cognito: CognitoClient,
         table_name: String,
         bucket_name: String,
         image_base_url: String,
@@ -30,6 +37,7 @@ impl ProfileStore {
         Self {
             dynamo,
             s3,
+            cognito,
             table_name,
             bucket_name,
             image_base_url,
@@ -126,6 +134,26 @@ impl ProfileStore {
         Ok(profile.to_public())
     }
 
+    /// Atomically increments the profile's view counter by one. Best-effort
+    /// from the caller's perspective — a failure here (e.g. a delete racing
+    /// this call) should never fail the profile fetch itself.
+    pub async fn increment_view_count(&self, profile_id: &str) -> Result<(), AppError> {
+        let pk = format!("PROFILE#{profile_id}");
+
+        self.dynamo
+            .update_item()
+            .table_name(&self.table_name)
+            .key("pk", AttributeValue::S(pk))
+            .key("sk", AttributeValue::S(PROFILE_SK.to_string()))
+            .update_expression("ADD view_count :inc")
+            .expression_attribute_values(":inc", AttributeValue::N("1".to_string()))
+            .condition_expression("attribute_exists(pk)")
+            .send()
+            .await
+            .map(|_| ())
+            .map_err(|e| AppError::Internal(format!("DynamoDB view count increment failed: {e}")))
+    }
+
     /// Get the full profile (including `email` regardless of
     /// `display_email`) for the authenticated user identified by `email`.
     pub async fn get_profile_by_email(&self, email: &str) -> Result<Profile, AppError> {
@@ -192,14 +220,38 @@ impl ProfileStore {
         let theme_str = get_string(item, "theme").unwrap_or_else(|| "light".to_string());
         let theme: ThemeId = serde_json::from_str(&format!("\"{theme_str}\"")).unwrap_or_default();
 
+        let custom_theme = match (
+            get_string(item, "custom_bg"),
+            get_string(item, "custom_text"),
+            get_string(item, "custom_text_muted"),
+            get_string(item, "custom_accent"),
+        ) {
+            (Some(bg), Some(text), Some(text_muted), Some(accent)) => Some(CustomTheme {
+                bg,
+                text,
+                text_muted,
+                accent,
+            }),
+            _ => None,
+        };
+
+        let view_count = item
+            .get("view_count")
+            .and_then(|v| v.as_n().ok())
+            .and_then(|s| s.parse::<i64>().ok());
+
         Ok(Profile {
             id: profile_id.to_string(),
             email: Some(email),
             display_name: get_string(item, "display_name"),
             tagline: get_string(item, "tagline"),
             phone: get_string(item, "phone"),
+            location: get_string(item, "location"),
+            pronouns: get_string(item, "pronouns"),
             image_url,
             theme,
+            custom_theme,
+            view_count,
             display_email: item
                 .get("display_email")
                 .and_then(|v| v.as_bool().ok())
@@ -225,6 +277,14 @@ impl ProfileStore {
             .as_ref()
             .map(|p| p.created_at.clone())
             .unwrap_or_else(|| now.clone());
+
+        if existing.is_none() {
+            // Usage-counter log line — queried by ApiStack's dashboard
+            // (app-wide "profiles created" widget) via CloudWatch Logs
+            // Insights. Only fires on genuine first-time creation, not
+            // every subsequent edit.
+            tracing::info!(metric = "profile_created", profile_id = %profile_id, "Profile created");
+        }
 
         // Build profile item
         let mut item = std::collections::HashMap::new();
@@ -259,6 +319,30 @@ impl ProfileStore {
         }
         if let Some(ref phone) = req.phone {
             item.insert("phone".to_string(), AttributeValue::S(phone.clone()));
+        }
+        if let Some(ref location) = req.location {
+            item.insert("location".to_string(), AttributeValue::S(location.clone()));
+        }
+        if let Some(ref pronouns) = req.pronouns {
+            item.insert("pronouns".to_string(), AttributeValue::S(pronouns.clone()));
+        }
+        if let Some(ref custom_theme) = req.custom_theme {
+            item.insert(
+                "custom_bg".to_string(),
+                AttributeValue::S(custom_theme.bg.clone()),
+            );
+            item.insert(
+                "custom_text".to_string(),
+                AttributeValue::S(custom_theme.text.clone()),
+            );
+            item.insert(
+                "custom_text_muted".to_string(),
+                AttributeValue::S(custom_theme.text_muted.clone()),
+            );
+            item.insert(
+                "custom_accent".to_string(),
+                AttributeValue::S(custom_theme.accent.clone()),
+            );
         }
 
         // Preserve image_key if it exists
@@ -316,8 +400,10 @@ impl ProfileStore {
         self.get_profile_full(&profile_id).await
     }
 
-    /// Delete a profile, all its link items, and its `EMAIL#` pointer.
-    pub async fn delete_profile(&self, email: &str) -> Result<(), AppError> {
+    /// Delete a profile, all its link items, its `EMAIL#` pointer, and the
+    /// user's Cognito account. The caller's own access token is passed through
+    /// to Cognito's `DeleteUser` API — no admin credentials are required.
+    pub async fn delete_profile(&self, email: &str, access_token: &str) -> Result<(), AppError> {
         let profile_id = self
             .get_profile_id_for_email(email)
             .await?
@@ -377,6 +463,208 @@ impl ProfileStore {
             .key(&image_key)
             .send()
             .await;
+
+        // Delete the Cognito user using their own access token — no admin
+        // credentials required. Cognito validates the token, so a forged or
+        // expired token is rejected before any user is deleted.
+        self.cognito
+            .delete_user()
+            .access_token(access_token)
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(format!("Cognito user deletion failed: {e}")))?;
+
+        Ok(())
+    }
+
+    /// Creates a new connection under the authenticated user's own email
+    /// partition — never under a profile's `PROFILE#` partition, since a
+    /// connection belongs to the *account* that saved it, not to any
+    /// profile (including the caller's own, if they have one).
+    pub async fn create_connection(
+        &self,
+        email: &str,
+        req: &ConnectionCreateRequest,
+    ) -> Result<Connection, AppError> {
+        let pk = Self::email_pk(email);
+        let id = generate_connection_id();
+        let sk = format!("{CONNECTION_PREFIX}{id}");
+        let created_at = chrono_now();
+
+        let mut item = std::collections::HashMap::new();
+        item.insert("pk".to_string(), AttributeValue::S(pk));
+        item.insert("sk".to_string(), AttributeValue::S(sk));
+        item.insert("name".to_string(), AttributeValue::S(req.name.clone()));
+        if let Some(ref notes) = req.notes {
+            item.insert("notes".to_string(), AttributeValue::S(notes.clone()));
+        }
+        if let Some(ref event) = req.event {
+            item.insert("event".to_string(), AttributeValue::S(event.clone()));
+        }
+        if let Some(ref photo_url) = req.photo_url {
+            item.insert(
+                "photo_url".to_string(),
+                AttributeValue::S(photo_url.clone()),
+            );
+        }
+        if let Some(ref source_profile_id) = req.source_profile_id {
+            item.insert(
+                "source_profile_id".to_string(),
+                AttributeValue::S(source_profile_id.clone()),
+            );
+        }
+        item.insert(
+            "created_at".to_string(),
+            AttributeValue::S(created_at.clone()),
+        );
+
+        self.dynamo
+            .put_item()
+            .table_name(&self.table_name)
+            .set_item(Some(item))
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(format!("DynamoDB put connection failed: {e}")))?;
+
+        Ok(Connection {
+            id,
+            name: req.name.clone(),
+            notes: req.notes.clone(),
+            event: req.event.clone(),
+            photo_url: req.photo_url.clone(),
+            source_profile_id: req.source_profile_id.clone(),
+            created_at,
+        })
+    }
+
+    /// Updates the name/notes/event of one of the authenticated user's own
+    /// connections. Scoped to their own email partition, so a caller can
+    /// never edit another user's connection. Preserves `photo_url`,
+    /// `source_profile_id`, and `created_at` from the existing item — those
+    /// are set once at creation time and not editable here.
+    pub async fn update_connection(
+        &self,
+        email: &str,
+        connection_id: &str,
+        req: &ConnectionUpdateRequest,
+    ) -> Result<Connection, AppError> {
+        let pk = Self::email_pk(email);
+        let sk = format!("{CONNECTION_PREFIX}{connection_id}");
+
+        let existing = self
+            .dynamo
+            .get_item()
+            .table_name(&self.table_name)
+            .key("pk", AttributeValue::S(pk.clone()))
+            .key("sk", AttributeValue::S(sk.clone()))
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(format!("DynamoDB get failed: {e}")))?
+            .item
+            .ok_or(AppError::NotFound)?;
+
+        let photo_url = get_string(&existing, "photo_url");
+        let source_profile_id = get_string(&existing, "source_profile_id");
+        let created_at = get_string(&existing, "created_at").unwrap_or_else(chrono_now);
+
+        let mut item = std::collections::HashMap::new();
+        item.insert("pk".to_string(), AttributeValue::S(pk));
+        item.insert("sk".to_string(), AttributeValue::S(sk));
+        item.insert("name".to_string(), AttributeValue::S(req.name.clone()));
+        if let Some(ref notes) = req.notes {
+            item.insert("notes".to_string(), AttributeValue::S(notes.clone()));
+        }
+        if let Some(ref event) = req.event {
+            item.insert("event".to_string(), AttributeValue::S(event.clone()));
+        }
+        if let Some(ref photo_url) = photo_url {
+            item.insert(
+                "photo_url".to_string(),
+                AttributeValue::S(photo_url.clone()),
+            );
+        }
+        if let Some(ref source_profile_id) = source_profile_id {
+            item.insert(
+                "source_profile_id".to_string(),
+                AttributeValue::S(source_profile_id.clone()),
+            );
+        }
+        item.insert(
+            "created_at".to_string(),
+            AttributeValue::S(created_at.clone()),
+        );
+
+        self.dynamo
+            .put_item()
+            .table_name(&self.table_name)
+            .set_item(Some(item))
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(format!("DynamoDB put connection failed: {e}")))?;
+
+        Ok(Connection {
+            id: connection_id.to_string(),
+            name: req.name.clone(),
+            notes: req.notes.clone(),
+            event: req.event.clone(),
+            photo_url,
+            source_profile_id,
+            created_at,
+        })
+    }
+
+    /// Lists every connection the authenticated user has saved, newest
+    /// first. Scoped to their own email partition — this query can never
+    /// return another user's connections.
+    pub async fn list_connections(&self, email: &str) -> Result<Vec<Connection>, AppError> {
+        let pk = Self::email_pk(email);
+
+        let result = self
+            .dynamo
+            .query()
+            .table_name(&self.table_name)
+            .key_condition_expression("pk = :pk AND begins_with(sk, :prefix)")
+            .expression_attribute_values(":pk", AttributeValue::S(pk))
+            .expression_attribute_values(
+                ":prefix",
+                AttributeValue::S(CONNECTION_PREFIX.to_string()),
+            )
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(format!("DynamoDB query failed: {e}")))?;
+
+        let mut connections: Vec<Connection> = result
+            .items()
+            .iter()
+            .filter_map(parse_connection_item)
+            .collect();
+
+        connections.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
+        Ok(connections)
+    }
+
+    /// Deletes one of the authenticated user's own connections. Scoped to
+    /// their own email partition, so a caller can never delete another
+    /// user's connection — there's no id-only lookup path that could allow
+    /// cross-account deletion. Deleting a nonexistent id is a silent no-op,
+    /// matching DynamoDB's own DeleteItem semantics.
+    pub async fn delete_connection(
+        &self,
+        email: &str,
+        connection_id: &str,
+    ) -> Result<(), AppError> {
+        let pk = Self::email_pk(email);
+        let sk = format!("{CONNECTION_PREFIX}{connection_id}");
+
+        self.dynamo
+            .delete_item()
+            .table_name(&self.table_name)
+            .key("pk", AttributeValue::S(pk))
+            .key("sk", AttributeValue::S(sk))
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(format!("DynamoDB delete connection failed: {e}")))?;
 
         Ok(())
     }
@@ -502,6 +790,24 @@ fn parse_link_item(item: &std::collections::HashMap<String, AttributeValue>) -> 
     })
 }
 
+fn parse_connection_item(
+    item: &std::collections::HashMap<String, AttributeValue>,
+) -> Option<Connection> {
+    let sk = get_string(item, "sk")?;
+    let id = sk.strip_prefix(CONNECTION_PREFIX)?.to_string();
+    let name = get_string(item, "name")?;
+
+    Some(Connection {
+        id,
+        name,
+        notes: get_string(item, "notes"),
+        event: get_string(item, "event"),
+        photo_url: get_string(item, "photo_url"),
+        source_profile_id: get_string(item, "source_profile_id"),
+        created_at: get_string(item, "created_at").unwrap_or_else(|| "unknown".to_string()),
+    })
+}
+
 fn get_string(
     item: &std::collections::HashMap<String, AttributeValue>,
     key: &str,
@@ -603,6 +909,68 @@ mod email_pk_tests {
             ProfileStore::email_pk("test@example.com"),
             ProfileStore::email_pk("Test@Example.com")
         );
+    }
+}
+
+#[cfg(test)]
+mod parse_connection_item_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn item_with(pairs: &[(&str, &str)]) -> HashMap<String, AttributeValue> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), AttributeValue::S(v.to_string())))
+            .collect()
+    }
+
+    #[test]
+    fn parses_a_minimal_item() {
+        let item = item_with(&[
+            ("sk", "CONNECTION#abc123def456"),
+            ("name", "Grace Hopper"),
+            ("created_at", "2024-01-01T00:00:00Z"),
+        ]);
+        let connection = parse_connection_item(&item).expect("should parse");
+        assert_eq!(connection.id, "abc123def456");
+        assert_eq!(connection.name, "Grace Hopper");
+        assert_eq!(connection.notes, None);
+        assert_eq!(connection.event, None);
+    }
+
+    #[test]
+    fn parses_a_full_item() {
+        let item = item_with(&[
+            ("sk", "CONNECTION#abc123def456"),
+            ("name", "Grace Hopper"),
+            ("notes", "Follow up re: COBOL"),
+            ("event", "AWS re:Invent"),
+            ("photo_url", "/images/xyz789"),
+            ("source_profile_id", "xyz789"),
+            ("created_at", "2024-01-01T00:00:00Z"),
+        ]);
+        let connection = parse_connection_item(&item).expect("should parse");
+        assert_eq!(connection.notes, Some("Follow up re: COBOL".to_string()));
+        assert_eq!(connection.event, Some("AWS re:Invent".to_string()));
+        assert_eq!(connection.photo_url, Some("/images/xyz789".to_string()));
+        assert_eq!(connection.source_profile_id, Some("xyz789".to_string()));
+    }
+
+    #[test]
+    fn returns_none_when_sk_is_not_a_connection_item() {
+        // e.g. the POINTER item that shares the same pk — must never be
+        // mistaken for a connection.
+        let item = item_with(&[("sk", "POINTER"), ("profile_id", "abc123")]);
+        assert!(parse_connection_item(&item).is_none());
+    }
+
+    #[test]
+    fn returns_none_when_name_is_missing() {
+        let item = item_with(&[
+            ("sk", "CONNECTION#abc123def456"),
+            ("created_at", "2024-01-01T00:00:00Z"),
+        ]);
+        assert!(parse_connection_item(&item).is_none());
     }
 }
 

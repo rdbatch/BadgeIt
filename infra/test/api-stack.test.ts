@@ -52,7 +52,18 @@ describe("ApiStack", () => {
             IMAGE_BASE_URL: Match.anyValue(),
             USER_POOL_ID: Match.anyValue(),
             USER_POOL_CLIENT_ID: Match.anyValue(),
+            SITE_URL: Match.anyValue(),
           },
+        },
+      });
+    });
+
+    test("defaults SITE_URL to empty when siteUrl prop is not set", () => {
+      template.hasResourceProperties("AWS::Lambda::Function", {
+        Environment: {
+          Variables: Match.objectLike({
+            SITE_URL: "",
+          }),
         },
       });
     });
@@ -153,6 +164,113 @@ describe("ApiStack", () => {
     test("has POST /api/profile/image route", () => {
       template.hasResourceProperties("AWS::ApiGatewayV2::Route", {
         RouteKey: "POST /api/profile/image",
+      });
+    });
+
+    test("has GET /__og/profile/{id} route for crawler-facing OpenGraph HTML", () => {
+      template.hasResourceProperties("AWS::ApiGatewayV2::Route", {
+        RouteKey: "GET /__og/profile/{id}",
+      });
+    });
+
+    test("has GET /api/connections route", () => {
+      template.hasResourceProperties("AWS::ApiGatewayV2::Route", {
+        RouteKey: "GET /api/connections",
+      });
+    });
+
+    test("has POST /api/connections route", () => {
+      template.hasResourceProperties("AWS::ApiGatewayV2::Route", {
+        RouteKey: "POST /api/connections",
+      });
+    });
+
+    test("has DELETE /api/connections/{id} route", () => {
+      template.hasResourceProperties("AWS::ApiGatewayV2::Route", {
+        RouteKey: "DELETE /api/connections/{id}",
+      });
+    });
+  });
+
+  describe("Observability", () => {
+    test("creates a CloudWatch dashboard", () => {
+      template.hasResourceProperties("AWS::CloudWatch::Dashboard", {
+        DashboardName: "badgeit-test",
+      });
+    });
+
+    test("creates an alarm on Lambda errors", () => {
+      template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+        AlarmName: "badgeit-api-test-lambda-errors",
+        Namespace: "AWS/Lambda",
+        MetricName: "Errors",
+        Threshold: 5,
+      });
+    });
+
+    test("creates an alarm on Lambda p99 duration", () => {
+      template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+        AlarmName: "badgeit-api-test-lambda-p99-duration",
+        Namespace: "AWS/Lambda",
+        MetricName: "Duration",
+        ExtendedStatistic: "p99",
+      });
+    });
+
+    test("creates an alarm on API Gateway 5xx responses", () => {
+      template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+        AlarmName: "badgeit-api-test-5xx",
+        Namespace: "AWS/ApiGateway",
+      });
+    });
+
+    test("creates an alarm on DynamoDB throttled requests", () => {
+      template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+        AlarmName: "badgeit-api-test-dynamodb-throttles",
+        Namespace: "AWS/DynamoDB",
+        MetricName: "ThrottledRequests",
+      });
+    });
+
+    test("dashboard includes a Logs Insights widget querying for profile_created", () => {
+      const dashboard = template.findResources("AWS::CloudWatch::Dashboard");
+      const body = Object.values(dashboard)[0].Properties.DashboardBody;
+      // DashboardBody is a Fn::Join'd JSON string in the synthesized
+      // template — assert the query text appears somewhere in its parts
+      // rather than parsing the whole Fn::Join expression.
+      const joined = JSON.stringify(body);
+      expect(joined).toContain("profile_created");
+      expect(joined).toContain("public_card_view");
+    });
+  });
+
+  describe("siteUrl prop", () => {
+    test("sets SITE_URL when siteUrl is provided", () => {
+      const app = new cdk.App({ context: { environment: "test" } });
+      const env = { account: "123456789012", region: "us-east-1" };
+
+      new DataStack(app, "SiteUrlDataStack", {
+        tags: { project: "badgeit", environment: "test" },
+        env,
+      });
+      new AuthStack(app, "SiteUrlAuthStack", {
+        tags: { project: "badgeit", environment: "test" },
+        sesDomainName: "test.badgeit.app",
+        env,
+      });
+      const apiStack = new ApiStack(app, "SiteUrlApiStack", {
+        tags: { project: "badgeit", environment: "test" },
+        env,
+        environment: "test",
+        siteUrl: "https://badgeit.example.com",
+      });
+
+      Template.fromStack(apiStack).hasResourceProperties("AWS::Lambda::Function", {
+        Environment: {
+          Variables: Match.objectLike({
+            SITE_URL: "https://badgeit.example.com",
+          }),
+        },
       });
     });
   });

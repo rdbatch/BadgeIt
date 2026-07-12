@@ -45,7 +45,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.branch }}
 
@@ -80,7 +80,7 @@ jobs:
       - name: Restore executable bit on Lambda bootstrap binaries
         run: chmod +x backend/target/lambda/*/bootstrap
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "24"
 

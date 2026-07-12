@@ -37,8 +37,18 @@ export function PublicCardPage() {
           displayName: data.display_name,
           tagline: data.tagline,
           phone: data.phone,
+          location: data.location,
+          pronouns: data.pronouns,
           imageUrl: data.image_url,
           theme: data.theme ?? 'light',
+          customTheme: data.custom_theme
+            ? {
+                bg: data.custom_theme.bg,
+                text: data.custom_theme.text,
+                textMuted: data.custom_theme.text_muted,
+                accent: data.custom_theme.accent,
+              }
+            : undefined,
           displayEmail: data.display_email ?? true,
           links: data.links ?? [],
         }

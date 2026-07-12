@@ -49,6 +49,15 @@ const authStack = new AuthStack(app, `BadgeIt-Auth-${environment}`, {
     (environment === "prod" ? "badgeit.app" : `${environment}.badgeit.app`),
 });
 
+// Computed once and shared: FrontendStack's custom domain (once configured)
+// is also the app's public origin, which ApiStack needs to build absolute
+// og:url/og:image values for its crawler-facing /__og/profile/{id} route.
+const domainNames = (app.node.tryGetContext("domainName") as string | undefined)
+  ?.split(",")
+  .map((domain) => domain.trim())
+  .filter(Boolean);
+const siteUrl = domainNames?.[0] ? `https://${domainNames[0]}` : undefined;
+
 const apiStack = new ApiStack(app, `BadgeIt-Api-${environment}`, {
   tags: commonTags,
   env: stackEnv,
@@ -60,6 +69,7 @@ const apiStack = new ApiStack(app, `BadgeIt-Api-${environment}`, {
     ?.split(",")
     .map((origin) => origin.trim())
     .filter(Boolean),
+  siteUrl,
 });
 // DataStack's table/imageBucket and AuthStack's Cognito identifiers are
 // resolved via SSM Parameter Store (see dataStackParamPaths in
@@ -81,10 +91,7 @@ const frontendStack = new FrontendStack(app, `BadgeIt-Frontend-${environment}`, 
   //     --context domainName=badgeit.com \
   //     --context certificateArn=arn:aws:acm:us-east-1:<account>:certificate/<id>
   // domainName may be a comma-separated list (e.g. "badgeit.com,www.badgeit.com").
-  domainNames: (app.node.tryGetContext("domainName") as string | undefined)
-    ?.split(",")
-    .map((domain) => domain.trim())
-    .filter(Boolean),
+  domainNames,
   certificateArn: app.node.tryGetContext("certificateArn") as string | undefined,
 });
 // ApiStack's API URL and DataStack's image bucket are resolved via SSM

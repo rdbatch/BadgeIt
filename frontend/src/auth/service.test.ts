@@ -11,13 +11,13 @@ function seedSession(overrides: Partial<AuthSession> = {}): AuthSession {
     email: 'test@example.com',
     ...overrides,
   }
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify(session))
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session))
   return session
 }
 
 describe('isSessionExpiring', () => {
   afterEach(() => {
-    sessionStorage.clear()
+    localStorage.clear()
   })
 
   it('returns false when the token has plenty of time left', () => {
@@ -38,7 +38,7 @@ describe('isSessionExpiring', () => {
 
 describe('refreshSession', () => {
   afterEach(() => {
-    sessionStorage.clear()
+    localStorage.clear()
     vi.restoreAllMocks()
   })
 
@@ -55,7 +55,7 @@ describe('refreshSession', () => {
 
 describe('getSession', () => {
   afterEach(() => {
-    sessionStorage.clear()
+    localStorage.clear()
   })
 
   it('returns null when nothing is stored', () => {
@@ -68,7 +68,7 @@ describe('getSession', () => {
   })
 
   it('returns null for corrupted storage instead of throwing', () => {
-    sessionStorage.setItem(SESSION_KEY, 'not-json')
+    localStorage.setItem(SESSION_KEY, 'not-json')
     expect(getSession()).toBeNull()
   })
 })

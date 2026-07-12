@@ -156,13 +156,32 @@ describe('Print3DModal', () => {
 
   it('closes when the backdrop is clicked', () => {
     const { onClose } = renderModal()
-    fireEvent.click(screen.getByRole('dialog'))
+    const dialog = screen.getByRole('dialog')
+    fireEvent.mouseDown(dialog)
+    fireEvent.click(dialog)
     expect(onClose).toHaveBeenCalled()
   })
 
   it('does not close when clicking inside the panel', () => {
     const { onClose } = renderModal()
-    fireEvent.click(screen.getByText('3D Print Your QR Code'))
+    const heading = screen.getByText('3D Print Your QR Code')
+    fireEvent.mouseDown(heading)
+    fireEvent.click(heading)
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('does not close when a drag starts on a slider and is released over the backdrop', () => {
+    // Regression test: browsers dispatch `click` on the nearest common
+    // ancestor of the mousedown/mouseup targets, so starting a drag on the
+    // size slider and releasing over the backdrop used to fire a click
+    // whose target was the backdrop itself, closing the modal mid-drag.
+    const { onClose } = renderModal()
+    const dialog = screen.getByRole('dialog')
+    const slider = screen.getByLabelText('Size')
+
+    fireEvent.mouseDown(slider)
+    fireEvent.click(dialog)
+
     expect(onClose).not.toHaveBeenCalled()
   })
 })

@@ -4,3 +4,6 @@ cdk.out/
 *.js
 *.d.ts
 !jest.config.ts
+# Hand-written CloudFront Function source (not tsc output) — read directly
+# from disk at synth time via cloudfront.FunctionCode.fromFile().
+!lib/cloudfront-functions/*.js

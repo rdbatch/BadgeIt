@@ -1,6 +1,4 @@
-import type { SocialPlatform } from '../types/profile'
-
-interface IconProps {
+export interface IconProps {
   className?: string
 }
 
@@ -69,6 +67,15 @@ function PersonIcon({ className }: IconProps) {
   )
 }
 
+/** Calendar icon for booking/scheduling links */
+function CalendarIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zM5 8V6h14v2H5zm2 4h5v5H7z" />
+    </svg>
+  )
+}
+
 /** Globe icon for custom links */
 function GlobeIcon({ className }: IconProps) {
   return (
@@ -96,36 +103,112 @@ function PhoneIcon({ className }: IconProps) {
   )
 }
 
-const platformIcons: Record<SocialPlatform, React.ComponentType<IconProps>> = {
-  linkedin: LinkedInIcon,
-  github: GitHubIcon,
-  twitter: TwitterIcon,
-  instagram: InstagramIcon,
-  youtube: YouTubeIcon,
-  mastodon: MastodonIcon,
-  bluesky: BlueskyIcon,
-  website: PersonIcon,
-  custom: GlobeIcon,
+/** Floppy disk (save) icon */
+function SaveIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.11 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z" />
+    </svg>
+  )
 }
 
-const platformLabels: Record<SocialPlatform, string> = {
-  linkedin: 'LinkedIn',
-  github: 'GitHub',
-  twitter: 'X (Twitter)',
-  instagram: 'Instagram',
-  youtube: 'YouTube',
-  mastodon: 'Mastodon',
-  bluesky: 'Bluesky',
-  website: 'Personal Website',
-  custom: 'Link',
+/** Location pin icon */
+function LocationIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1112 6.5a2.5 2.5 0 010 5z" />
+    </svg>
+  )
 }
 
-export function getPlatformIcon(platform: SocialPlatform): React.ComponentType<IconProps> {
-  return platformIcons[platform]
+/** Download icon — arrow pointing into a tray */
+function DownloadIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0l-4-4m4 4l4-4M5 17v2a2 2 0 002 2h10a2 2 0 002-2v-2" />
+    </svg>
+  )
 }
 
-export function getPlatformLabel(platform: SocialPlatform): string {
-  return platformLabels[platform]
+/** Pencil icon for editing an entry */
+function PencilIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M11 4H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2v-5" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+    </svg>
+  )
 }
 
-export { EmailIcon, PhoneIcon }
+/** Chevron pointing right, used for accordion toggles (rotate for open state) */
+function ChevronRightIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 6l6 6-6 6" />
+    </svg>
+  )
+}
+
+/** Hamburger menu icon */
+function MenuIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+    </svg>
+  )
+}
+
+/** Arrow pointing left, used for "back" navigation */
+function ArrowLeftIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 6l-6 6 6 6" />
+    </svg>
+  )
+}
+
+/** Sun icon — used to switch to the light theme */
+function SunIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <circle cx="12" cy="12" r="4" />
+      <path
+        strokeLinecap="round"
+        d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"
+      />
+    </svg>
+  )
+}
+
+/** Moon icon — used to switch to the dark theme */
+function MoonIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M20.742 13.045a8.088 8.088 0 01-2.077.273c-4.516 0-8.176-3.66-8.176-8.176 0-.712.093-1.403.267-2.06a.5.5 0 00-.64-.61A10.083 10.083 0 002 12.083C2 17.56 6.44 22 11.917 22a10.083 10.083 0 009.44-6.516.5.5 0 00-.615-.44z" />
+    </svg>
+  )
+}
+
+export {
+  LinkedInIcon,
+  GitHubIcon,
+  TwitterIcon,
+  InstagramIcon,
+  YouTubeIcon,
+  MastodonIcon,
+  BlueskyIcon,
+  PersonIcon,
+  CalendarIcon,
+  GlobeIcon,
+  EmailIcon,
+  PhoneIcon,
+  LocationIcon,
+  SaveIcon,
+  DownloadIcon,
+  PencilIcon,
+  ChevronRightIcon,
+  MenuIcon,
+  ArrowLeftIcon,
+  SunIcon,
+  MoonIcon,
+}

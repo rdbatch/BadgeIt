@@ -228,6 +228,36 @@ describe("FrontendStack", () => {
         },
       });
     });
+
+    test("has /__og/* cache behavior pointed at the API Gateway origin, disabled cache", () => {
+      template.hasResourceProperties("AWS::CloudFront::Distribution", {
+        DistributionConfig: {
+          CacheBehaviors: Match.arrayWith([
+            Match.objectLike({
+              PathPattern: "/__og/*",
+              AllowedMethods: Match.arrayWith(["GET", "HEAD"]),
+              CachePolicyId: Match.anyValue(),
+            }),
+          ]),
+        },
+      });
+    });
+
+    test("attaches a CloudFront Function to the default behavior for viewer-request", () => {
+      template.hasResourceProperties("AWS::CloudFront::Distribution", {
+        DistributionConfig: {
+          DefaultCacheBehavior: Match.objectLike({
+            FunctionAssociations: Match.arrayWith([
+              Match.objectLike({ EventType: "viewer-request" }),
+            ]),
+          }),
+        },
+      });
+    });
+
+    test("creates the crawler-rewrite CloudFront Function", () => {
+      template.resourceCountIs("AWS::CloudFront::Function", 1);
+    });
   });
 
   describe("BucketDeployment", () => {

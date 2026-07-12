@@ -19,3 +19,5 @@ cdk-outputs.json
 .DS_Store
 *.swp
 scripts/
+planning.md
+.claude/

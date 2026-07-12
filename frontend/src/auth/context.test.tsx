@@ -5,7 +5,7 @@ import * as service from './service'
 const SESSION_KEY = 'badgeit-auth-session'
 
 function seedSession(expiresInMs: number) {
-  sessionStorage.setItem(
+  localStorage.setItem(
     SESSION_KEY,
     JSON.stringify({
       idToken: 'id-token',
@@ -29,7 +29,7 @@ function Probe() {
 
 describe('AuthProvider proactive token refresh', () => {
   afterEach(() => {
-    sessionStorage.clear()
+    localStorage.clear()
     vi.restoreAllMocks()
     vi.useRealTimers()
   })
@@ -47,7 +47,7 @@ describe('AuthProvider proactive token refresh', () => {
     await waitFor(() => {
       expect(screen.getByTestId('authed')).toHaveTextContent('false')
     })
-    expect(sessionStorage.getItem(SESSION_KEY)).toBeNull()
+    expect(localStorage.getItem(SESSION_KEY)).toBeNull()
   })
 
   it('adopts the renewed session when refresh succeeds', async () => {
@@ -73,7 +73,7 @@ describe('AuthProvider proactive token refresh', () => {
   })
 
   it('does not attempt to refresh a session with no refresh token', async () => {
-    sessionStorage.setItem(
+    localStorage.setItem(
       SESSION_KEY,
       JSON.stringify({
         idToken: 'id-token',

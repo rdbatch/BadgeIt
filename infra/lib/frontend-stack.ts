@@ -146,6 +146,22 @@ export class FrontendStack extends cdk.Stack {
 
     // Extract the API Gateway domain from the full URL
     const apiDomain = cdk.Fn.select(2, cdk.Fn.split("/", apiUrl));
+    const apiOrigin = new origins.HttpOrigin(apiDomain, {
+      protocolPolicy: cloudfront.OriginProtocolPolicy.HTTPS_ONLY,
+    });
+
+    // Rewrites /p/{id} requests from known social-media crawler User-Agents
+    // to /__og/profile/{id} (see the additionalBehaviors entry below) —
+    // real visitors are untouched and keep hitting the SPA from S3. This is
+    // what makes shared /p/{id} links unfurl with a name/photo/tagline in
+    // iMessage/Slack/LinkedIn/etc., since those crawlers never execute the
+    // client-rendered SPA's JS.
+    const ogCrawlerRewriteFn = new cloudfront.Function(this, "OgCrawlerRewriteFunction", {
+      code: cloudfront.FunctionCode.fromFile({
+        filePath: path.join(__dirname, "cloudfront-functions/og-crawler-rewrite.js"),
+      }),
+      comment: "Rewrite /p/{id} to /__og/profile/{id} for known crawler User-Agents",
+    });
 
     // Origin Access Control for the (cross-stack) profile-image bucket.
     // See the OacS3Origin doc comment above for why this can't use
@@ -179,14 +195,27 @@ export class FrontendStack extends cdk.Stack {
         // Vite content-hashes these filenames, so it's always safe to cache
         // aggressively — a new deploy produces new filenames.
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        functionAssociations: [
+          {
+            function: ogCrawlerRewriteFn,
+            eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
+          },
+        ],
       },
       additionalBehaviors: {
         "/api/*": {
-          origin: new origins.HttpOrigin(apiDomain, {
-            protocolPolicy: cloudfront.OriginProtocolPolicy.HTTPS_ONLY,
-          }),
+          origin: apiOrigin,
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
           allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+          cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+          originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+        },
+        // Crawler-facing OpenGraph HTML — reached only via the viewer-request
+        // rewrite above, never called by the SPA itself.
+        "/__og/*": {
+          origin: apiOrigin,
+          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+          allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
           cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
           originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
         },

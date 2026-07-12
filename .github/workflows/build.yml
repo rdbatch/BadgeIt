@@ -29,11 +29,11 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.inputs.branch || github.ref }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "24"
           cache: npm
@@ -58,7 +58,7 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.inputs.branch || github.ref }}
 
@@ -93,7 +93,7 @@ jobs:
         run: cargo lambda build --release --arm64 --bin api --bin pre_sign_up
 
       - name: Upload Lambda binaries
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: lambda-binaries
           path: backend/target/lambda
@@ -107,7 +107,7 @@ jobs:
       run:
         working-directory: infra
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.inputs.branch || github.ref }}
 
@@ -115,7 +115,7 @@ jobs:
       # Lambda asset directories, so synth/tests need the real release
       # binaries on disk to stage as assets.
       - name: Download Lambda binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: lambda-binaries
           path: backend/target/lambda
@@ -125,7 +125,7 @@ jobs:
       - name: Restore executable bit on Lambda bootstrap binaries
         run: chmod +x ../backend/target/lambda/*/bootstrap
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "24"
           cache: npm

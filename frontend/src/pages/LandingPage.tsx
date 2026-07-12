@@ -1,6 +1,9 @@
-import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router'
+import { useState, useEffect, type FormEvent } from 'react'
+import { useNavigate, Link } from 'react-router'
 import { useAuth, initiateAuth, respondToChallenge } from '../auth'
+import { themes, themeBgColors } from '../constants/themes'
+import { useColorScheme } from '../hooks/useColorScheme'
+import { ColorSchemeToggle } from '../components/ColorSchemeToggle'
 
 type AuthStep = 'email' | 'verify'
 
@@ -12,10 +15,29 @@ export function LandingPage() {
   const [isLoading, setIsLoading] = useState(false)
   const navigate = useNavigate()
   const { isAuthenticated, syncSession } = useAuth()
+  const { colorScheme, toggleColorScheme } = useColorScheme()
+  const activeTheme = themes[colorScheme]
 
-  // If already authenticated, redirect to edit
+  // If already authenticated, redirect to edit. This must happen in an
+  // effect, not during render — calling navigate() synchronously while
+  // rendering is undefined behavior (React warns "Cannot update a
+  // component while rendering a different component") and was observed to
+  // render a blank page in Safari specifically, whenever a session was
+  // already present in localStorage on mount.
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/edit', { replace: true })
+    }
+  }, [isAuthenticated, navigate])
+
+  useEffect(() => {
+    document.documentElement.style.backgroundColor = themeBgColors[colorScheme] ?? ''
+    return () => {
+      document.documentElement.style.backgroundColor = ''
+    }
+  }, [colorScheme])
+
   if (isAuthenticated) {
-    navigate('/edit', { replace: true })
     return null
   }
 
@@ -55,12 +77,22 @@ export function LandingPage() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center px-4 py-12">
+    <main
+      className={`relative flex min-h-screen flex-col items-center justify-center px-4 py-12 transition-colors duration-300 ${activeTheme.bg}`}
+    >
+      <div className="absolute top-4 right-4">
+        <ColorSchemeToggle
+          colorScheme={colorScheme}
+          onToggle={toggleColorScheme}
+          className={activeTheme.textMuted}
+        />
+      </div>
+
       <div className="w-full max-w-sm space-y-8">
         {/* Header */}
         <div className="text-center">
-          <h1 className="text-4xl font-bold text-gray-900">BadgeIt</h1>
-          <p className="mt-2 text-lg text-gray-600">
+          <h1 className={`text-4xl font-bold ${activeTheme.text}`}>BadgeIt</h1>
+          <p className={`mt-2 text-lg ${activeTheme.textMuted}`}>
             Your lightweight digital business card
           </p>
         </div>
@@ -71,7 +103,7 @@ export function LandingPage() {
             <div>
               <label
                 htmlFor="email"
-                className="block text-sm font-medium text-gray-700"
+                className={`block text-sm font-medium ${activeTheme.text}`}
               >
                 Email address
               </label>
@@ -82,7 +114,7 @@ export function LandingPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
-                className="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                className={`mt-1 block w-full rounded-lg border border-current/20 bg-transparent px-4 py-3 placeholder-current/40 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none ${activeTheme.text}`}
                 disabled={isLoading}
                 autoComplete="email"
                 autoFocus
@@ -102,6 +134,13 @@ export function LandingPage() {
             >
               {isLoading ? 'Sending code...' : 'Get started'}
             </button>
+
+            <Link
+              to="/about"
+              className={`block text-center text-sm transition-opacity hover:opacity-80 ${activeTheme.textMuted}`}
+            >
+              About BadgeIt
+            </Link>
           </form>
         )}
 
@@ -109,16 +148,16 @@ export function LandingPage() {
         {step === 'verify' && (
           <form onSubmit={handleCodeSubmit} className="space-y-4">
             <div className="text-center">
-              <p className="text-sm text-gray-600">
+              <p className={`text-sm ${activeTheme.textMuted}`}>
                 We sent a verification code to{' '}
-                <span className="font-medium text-gray-900">{email}</span>
+                <span className={`font-medium ${activeTheme.text}`}>{email}</span>
               </p>
             </div>
 
             <div>
               <label
                 htmlFor="code"
-                className="block text-sm font-medium text-gray-700"
+                className={`block text-sm font-medium ${activeTheme.text}`}
               >
                 Verification code
               </label>
@@ -132,7 +171,7 @@ export function LandingPage() {
                 value={code}
                 onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
                 placeholder="12345678"
-                className="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-3 text-center text-2xl tracking-widest text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                className={`mt-1 block w-full rounded-lg border border-current/20 bg-transparent px-4 py-3 text-center text-2xl tracking-widest placeholder-current/40 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none ${activeTheme.text}`}
                 disabled={isLoading}
                 autoFocus
               />
@@ -159,7 +198,7 @@ export function LandingPage() {
                 setCode('')
                 setError('')
               }}
-              className="w-full text-sm text-gray-500 transition-colors hover:text-gray-700"
+              className={`w-full text-sm transition-opacity hover:opacity-80 ${activeTheme.textMuted}`}
             >
               Use a different email
             </button>

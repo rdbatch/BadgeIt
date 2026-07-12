@@ -4,6 +4,7 @@ import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as ssm from "aws-cdk-lib/aws-ssm";
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
+import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import { Construct } from "constructs";
 import { dataStackParamPaths } from "./data-stack";
@@ -39,6 +40,16 @@ export interface ApiStackProps extends cdk.StackProps {
    * empty for prod deploys.
    */
   readonly allowedOrigins?: string[];
+  /**
+   * The app's public origin (e.g. "https://badgeit.com"), used only to
+   * build absolute og:url/og:image values for the crawler-facing
+   * /__og/profile/{id} route (see docs on that route in router.rs).
+   * Leave unset until a custom domain is configured — the Lambda omits
+   * those tags rather than emit invalid relative URLs.
+   *
+   * @default - no custom domain yet, og:url/og:image are omitted
+   */
+  readonly siteUrl?: string;
 }
 
 /**
@@ -108,6 +119,7 @@ export class ApiStack extends cdk.Stack {
         IMAGE_BASE_URL: "",
         USER_POOL_ID: userPoolId,
         USER_POOL_CLIENT_ID: userPoolClientId,
+        SITE_URL: props.siteUrl ?? "",
       },
     });
 
@@ -195,7 +207,145 @@ export class ApiStack extends cdk.Stack {
       integration,
     });
 
+    httpApi.addRoutes({
+      path: "/api/connections",
+      methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.POST],
+      integration,
+    });
+
+    httpApi.addRoutes({
+      path: "/api/connections/{id}",
+      methods: [apigwv2.HttpMethod.DELETE],
+      integration,
+    });
+
+    // Crawler-facing OpenGraph HTML — routed here directly by a CloudFront
+    // Function that rewrites /p/{id} requests from known social-media
+    // crawler User-Agents (see FrontendStack). Not under /api/* since it
+    // returns HTML, not JSON, and is reached via a path rewrite rather than
+    // the app calling it directly.
+    httpApi.addRoutes({
+      path: "/__og/profile/{id}",
+      methods: [apigwv2.HttpMethod.GET],
+      integration,
+    });
+
     this.apiUrl = httpApi.apiEndpoint;
+
+    // --- Observability ---
+    //
+    // Alarms for the failure modes that actually matter at this app's
+    // scale (Lambda errors/latency, API Gateway 5xx, DynamoDB throttling),
+    // plus a dashboard combining those built-in metrics with two Logs
+    // Insights widgets over the structured JSON logs the Lambda emits
+    // (see router::route and store::upsert_profile) — these surface
+    // app-wide usage ("profiles created", "public card views") that has
+    // no equivalent built-in CloudWatch metric.
+
+    const lambdaErrors = apiFn.metric("Errors", {
+      statistic: "Sum",
+      period: cdk.Duration.minutes(5),
+    });
+    const lambdaInvocations = apiFn.metricInvocations({ period: cdk.Duration.minutes(5) });
+    const lambdaDurationP50 = apiFn.metricDuration({
+      statistic: "p50",
+      period: cdk.Duration.minutes(5),
+    });
+    const lambdaDurationP99 = apiFn.metricDuration({
+      statistic: "p99",
+      period: cdk.Duration.minutes(5),
+    });
+    // The imported `table` handle (via fromTableArn) only exposes ARN/name
+    // and grant methods, not the concrete Table class's metric* helpers —
+    // build this one directly from the well-known AWS/DynamoDB namespace.
+    const dynamoThrottledRequests = new cloudwatch.Metric({
+      namespace: "AWS/DynamoDB",
+      metricName: "ThrottledRequests",
+      dimensionsMap: { TableName: table.tableName },
+      statistic: "Sum",
+      period: cdk.Duration.minutes(5),
+    });
+
+    new cloudwatch.Alarm(this, "LambdaErrorsAlarm", {
+      alarmName: `badgeit-api-${environment}-lambda-errors`,
+      alarmDescription: "5 or more Lambda errors within a 5-minute window",
+      metric: lambdaErrors,
+      threshold: 5,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+    });
+
+    new cloudwatch.Alarm(this, "LambdaDurationAlarm", {
+      alarmName: `badgeit-api-${environment}-lambda-p99-duration`,
+      alarmDescription: "p99 Lambda duration at or above 10s for two consecutive 5-minute periods",
+      metric: lambdaDurationP99,
+      threshold: cdk.Duration.seconds(10).toMilliseconds(),
+      evaluationPeriods: 2,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+    });
+
+    new cloudwatch.Alarm(this, "ApiGateway5xxAlarm", {
+      alarmName: `badgeit-api-${environment}-5xx`,
+      alarmDescription: "5 or more API Gateway 5xx responses within a 5-minute window",
+      metric: httpApi.metricServerError({ period: cdk.Duration.minutes(5) }),
+      threshold: 5,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+    });
+
+    new cloudwatch.Alarm(this, "DynamoThrottleAlarm", {
+      alarmName: `badgeit-api-${environment}-dynamodb-throttles`,
+      alarmDescription: "Any DynamoDB throttled requests within a 5-minute window",
+      metric: dynamoThrottledRequests,
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+    });
+
+    const dashboard = new cloudwatch.Dashboard(this, "Dashboard", {
+      dashboardName: `badgeit-${environment}`,
+    });
+
+    dashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: "Lambda Invocations & Errors",
+        left: [lambdaInvocations, lambdaErrors],
+        width: 12,
+      }),
+      new cloudwatch.GraphWidget({
+        title: "Lambda Duration (p50 / p99)",
+        left: [lambdaDurationP50, lambdaDurationP99],
+        width: 12,
+      }),
+    );
+
+    dashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: "API Gateway Requests / 4xx / 5xx",
+        left: [httpApi.metricCount(), httpApi.metricClientError(), httpApi.metricServerError()],
+        width: 12,
+      }),
+      new cloudwatch.GraphWidget({
+        title: "DynamoDB Throttled Requests",
+        left: [dynamoThrottledRequests],
+        width: 12,
+      }),
+    );
+
+    dashboard.addWidgets(
+      new cloudwatch.LogQueryWidget({
+        title: "Profiles Created (usage counter)",
+        logGroupNames: [apiFn.logGroup.logGroupName],
+        view: cloudwatch.LogQueryVisualizationType.TABLE,
+        queryLines: ['filter fields.metric = "profile_created"', "stats count() as profiles_created"],
+      }),
+      new cloudwatch.LogQueryWidget({
+        title: "Public Card Views (usage counter)",
+        logGroupNames: [apiFn.logGroup.logGroupName],
+        view: cloudwatch.LogQueryVisualizationType.TABLE,
+        queryLines: ['filter fields.metric = "public_card_view"', "stats count() as card_views"],
+      }),
+    );
 
     // Publish the API URL to SSM instead of a CloudFormation stack export —
     // see `apiStackParamPaths`. Avoids a CloudFormation `Fn::ImportValue`

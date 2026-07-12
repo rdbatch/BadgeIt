@@ -3,9 +3,17 @@ name = "badgeit-backend"
 version = "0.1.0"
 edition = "2024"
 
+[lints.rust]
+# The zig linker used for cross-compiling Lambda targets emits a benign
+# "ignoring deprecated linker optimization setting '1'" notice on stderr;
+# rustc's linker-messages lint (warn-by-default since 1.9x) surfaces it as
+# a build warning even though the link succeeds and nothing is actually lost.
+linker_messages = "allow"
+
 [dependencies]
 aws_lambda_events = "0.15"
 aws-config = { version = "1", features = ["behavior-version-latest"] }
+aws-sdk-cognitoidentityprovider = "1"
 aws-sdk-dynamodb = "1"
 aws-sdk-s3 = "1"
 base64 = "0.22"

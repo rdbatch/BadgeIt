@@ -6,16 +6,24 @@ use base64::Engine;
 use crate::auth::{AuthConfig, authorize_profile_access, validate_token};
 use crate::error::AppError;
 use crate::models::{
-    ImageUploadRequest, ImageUploadResponse, ProfileDeleteRequest, ProfileUpdateRequest,
+    ConnectionCreateRequest, ConnectionUpdateRequest, ImageUploadRequest, ImageUploadResponse,
+    ProfileDeleteRequest, ProfileUpdateRequest,
 };
+use crate::og::render_og_html;
 use crate::store::ProfileStore;
 
 /// Route an incoming API Gateway request to the appropriate handler.
+///
+/// `site_url` is the app's public origin (e.g. `https://badgeit.app`, empty
+/// if no custom domain is configured yet) — only used to build absolute
+/// URLs for the crawler-facing `/__og/profile/{id}` route.
 pub async fn route(
     event: &ApiGatewayV2httpRequest,
     store: &ProfileStore,
     auth_config: &AuthConfig,
+    site_url: &str,
 ) -> ApiGatewayV2httpResponse {
+    let start = std::time::Instant::now();
     let method = event.request_context.http.method.as_str();
 
     let path = event
@@ -35,13 +43,41 @@ pub async fn route(
         ("PUT", "/api/profile") => handle_upsert_profile(event, store, auth_config).await,
         ("DELETE", "/api/profile") => handle_delete_profile(event, store, auth_config).await,
         ("POST", "/api/profile/image") => handle_upload_image(event, store, auth_config).await,
+        ("GET", "/api/connections") => handle_list_connections(event, store, auth_config).await,
+        ("POST", "/api/connections") => handle_create_connection(event, store, auth_config).await,
+        ("DELETE", p) if p.starts_with("/api/connections/") => {
+            let id = p.strip_prefix("/api/connections/").unwrap_or_default();
+            handle_delete_connection(event, store, auth_config, id).await
+        }
+        ("PATCH", p) if p.starts_with("/api/connections/") => {
+            let id = p.strip_prefix("/api/connections/").unwrap_or_default();
+            handle_update_connection(event, store, auth_config, id).await
+        }
+        ("GET", p) if p.starts_with("/__og/profile/") => {
+            let id = p.strip_prefix("/__og/profile/").unwrap_or_default();
+            Ok(handle_og_profile(id, store, site_url).await)
+        }
         _ => Err(AppError::NotFound),
     };
 
-    match result {
+    let response = match result {
         Ok(response) => response,
         Err(err) => err.to_response(),
-    }
+    };
+
+    // A structured completion log per request — queryable in CloudWatch
+    // Logs Insights (see ApiStack's dashboard) for latency/error-rate
+    // investigation beyond what the built-in Lambda/API Gateway metrics show.
+    let duration_ms = start.elapsed().as_millis();
+    tracing::info!(
+        method,
+        path,
+        status = response.status_code,
+        duration_ms,
+        "Request completed"
+    );
+
+    response
 }
 
 /// GET /api/profile/{id} — public, no auth required
@@ -54,7 +90,56 @@ async fn handle_get_profile(
     }
 
     let profile = store.get_profile(id).await?;
+
+    // Best-effort — a failed increment (e.g. a delete racing this request)
+    // must never fail the fetch itself, since the profile was already read.
+    if let Err(e) = store.increment_view_count(id).await {
+        tracing::warn!(profile_id = id, error = %e, "Failed to increment view count");
+    }
+
+    // Usage-counter log line — queried by ApiStack's dashboard (app-wide
+    // "public card views" widget) via CloudWatch Logs Insights, distinct
+    // from the per-profile view_count surfaced on the edit page.
+    tracing::info!(
+        metric = "public_card_view",
+        profile_id = id,
+        "Public card viewed"
+    );
+
     json_response(200, &profile)
+}
+
+/// GET /__og/profile/{id} — public, no auth required. Serves a minimal
+/// HTML document with OpenGraph/Twitter meta tags for social-media
+/// crawlers, since they never execute the client-rendered SPA's JS. Never
+/// intended for a real browser — see the CloudFront Function that rewrites
+/// crawler User-Agents' requests for `/p/{id}` to this path.
+async fn handle_og_profile(
+    id: &str,
+    store: &ProfileStore,
+    site_url: &str,
+) -> ApiGatewayV2httpResponse {
+    let (status, html) = match store.get_profile(id).await {
+        Ok(profile) => (200, render_og_html(Some(&profile), id, site_url)),
+        Err(AppError::NotFound) => (404, render_og_html(None, id, site_url)),
+        Err(e) => {
+            tracing::error!(profile_id = id, error = %e, "Failed to render OG HTML");
+            (500, render_og_html(None, id, site_url))
+        }
+    };
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "content-type",
+        "text/html; charset=utf-8".parse().expect("valid header"),
+    );
+
+    ApiGatewayV2httpResponse {
+        status_code: status,
+        body: Some(Body::Text(html)),
+        headers,
+        ..Default::default()
+    }
 }
 
 /// GET /api/profile/me — authenticated, returns the caller's own profile
@@ -117,7 +202,7 @@ async fn handle_delete_profile(
     // Ensure user can only delete their own profile
     authorize_profile_access(&token_email, &req.email)?;
 
-    store.delete_profile(&req.email).await?;
+    store.delete_profile(&req.email, &req.access_token).await?;
 
     let mut headers = HeaderMap::new();
     headers.insert(
@@ -155,6 +240,97 @@ async fn handle_upload_image(
         .await?;
 
     json_response(200, &ImageUploadResponse { image_url })
+}
+
+/// GET /api/connections — authenticated, lists the caller's saved
+/// connections (people they've met), newest first.
+async fn handle_list_connections(
+    event: &ApiGatewayV2httpRequest,
+    store: &ProfileStore,
+    auth_config: &AuthConfig,
+) -> Result<ApiGatewayV2httpResponse, AppError> {
+    let token_email = validate_token(event, auth_config).await?;
+    let connections = store.list_connections(&token_email).await?;
+    json_response(200, &connections)
+}
+
+/// POST /api/connections — authenticated, saves a new connection under the
+/// caller's own account (never under a profile, including the caller's own).
+async fn handle_create_connection(
+    event: &ApiGatewayV2httpRequest,
+    store: &ProfileStore,
+    auth_config: &AuthConfig,
+) -> Result<ApiGatewayV2httpResponse, AppError> {
+    let token_email = validate_token(event, auth_config).await?;
+
+    let body = get_request_body(event)?;
+    let req: ConnectionCreateRequest = serde_json::from_str(&body)
+        .map_err(|e| AppError::BadRequest(format!("Invalid request body: {e}")))?;
+
+    req.validate().map_err(AppError::BadRequest)?;
+
+    let connection = store.create_connection(&token_email, &req).await?;
+    json_response(200, &connection)
+}
+
+/// DELETE /api/connections/{id} — authenticated. Scoped to the caller's own
+/// email partition in the store, so this can never delete another user's
+/// connection regardless of what id is passed.
+async fn handle_delete_connection(
+    event: &ApiGatewayV2httpRequest,
+    store: &ProfileStore,
+    auth_config: &AuthConfig,
+    id: &str,
+) -> Result<ApiGatewayV2httpResponse, AppError> {
+    let token_email = validate_token(event, auth_config).await?;
+
+    if id.is_empty() {
+        return Err(AppError::BadRequest(
+            "Connection ID is required".to_string(),
+        ));
+    }
+
+    store.delete_connection(&token_email, id).await?;
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "content-type",
+        "application/json".parse().expect("valid header"),
+    );
+
+    Ok(ApiGatewayV2httpResponse {
+        status_code: 204,
+        body: None,
+        headers,
+        ..Default::default()
+    })
+}
+
+/// PATCH /api/connections/{id} — authenticated. Scoped to the caller's own
+/// email partition in the store, so this can never edit another user's
+/// connection regardless of what id is passed.
+async fn handle_update_connection(
+    event: &ApiGatewayV2httpRequest,
+    store: &ProfileStore,
+    auth_config: &AuthConfig,
+    id: &str,
+) -> Result<ApiGatewayV2httpResponse, AppError> {
+    let token_email = validate_token(event, auth_config).await?;
+
+    if id.is_empty() {
+        return Err(AppError::BadRequest(
+            "Connection ID is required".to_string(),
+        ));
+    }
+
+    let body = get_request_body(event)?;
+    let req: ConnectionUpdateRequest = serde_json::from_str(&body)
+        .map_err(|e| AppError::BadRequest(format!("Invalid request body: {e}")))?;
+
+    req.validate().map_err(AppError::BadRequest)?;
+
+    let connection = store.update_connection(&token_email, id, &req).await?;
+    json_response(200, &connection)
 }
 
 /// Extract the request body as a string, handling base64-encoded bodies.
@@ -219,10 +395,18 @@ mod tests {
             .region(aws_sdk_s3::config::Region::new("us-east-1"))
             .credentials_provider(aws_sdk_s3::config::Credentials::for_tests())
             .build();
+        let cognito_config = aws_sdk_cognitoidentityprovider::Config::builder()
+            .behavior_version(aws_sdk_cognitoidentityprovider::config::BehaviorVersion::latest())
+            .region(aws_sdk_cognitoidentityprovider::config::Region::new(
+                "us-east-1",
+            ))
+            .credentials_provider(aws_sdk_cognitoidentityprovider::config::Credentials::for_tests())
+            .build();
 
         ProfileStore::new(
             aws_sdk_dynamodb::Client::from_conf(dynamo_config),
             aws_sdk_s3::Client::from_conf(s3_config),
+            aws_sdk_cognitoidentityprovider::Client::from_conf(cognito_config),
             "test-table".to_string(),
             "test-bucket".to_string(),
             "".to_string(),
@@ -266,10 +450,53 @@ mod tests {
         };
         let store = test_store();
         let auth_config = test_auth_config();
-        let response = route(&event, &store, &auth_config).await;
+        let response = route(&event, &store, &auth_config, "").await;
         // No Authorization header — must be rejected before ever reaching
         // the store, and must not fall through to the public /{id} handler.
         assert_eq!(response.status_code, 401);
+    }
+
+    #[tokio::test]
+    async fn connections_routes_require_auth() {
+        let store = test_store();
+        let auth_config = test_auth_config();
+
+        for (method, path) in [
+            (aws_lambda_events::http::Method::GET, "/api/connections"),
+            (aws_lambda_events::http::Method::POST, "/api/connections"),
+            (
+                aws_lambda_events::http::Method::DELETE,
+                "/api/connections/abc123",
+            ),
+            (
+                aws_lambda_events::http::Method::PATCH,
+                "/api/connections/abc123",
+            ),
+        ] {
+            let event = ApiGatewayV2httpRequest {
+                raw_path: Some(path.to_string()),
+                request_context: aws_lambda_events::apigw::ApiGatewayV2httpRequestContext {
+                    http: aws_lambda_events::apigw::ApiGatewayV2httpRequestContextHttpDescription {
+                        method,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let response = route(&event, &store, &auth_config, "").await;
+            assert_eq!(
+                response.status_code, 401,
+                "expected 401 for unauthenticated {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn og_route_path_extraction() {
+        let path = "/__og/profile/abc123def456";
+        let id = path.strip_prefix("/__og/profile/").unwrap_or_default();
+        assert_eq!(id, "abc123def456");
     }
 
     #[test]

@@ -1,8 +1,13 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { Profile } from '../types/profile'
-import { getTheme } from '../constants/themes'
-import { getPlatformIcon, getPlatformLabel, EmailIcon, PhoneIcon } from './SocialIcons'
+import { getTheme, getCustomThemeStyle, themeBgColors } from '../constants/themes'
+import { getPlatformIcon, getPlatformLabel } from '../constants/socialPlatforms'
+import { EmailIcon, PhoneIcon, LocationIcon, SaveIcon, DownloadIcon } from './SocialIcons'
 import { QRModal } from './QRModal'
+import { SaveConnectionModal } from './SaveConnectionModal'
+import { buildVCard, downloadVCardFile, fetchImageAsVCardPhoto } from '../lib/vcard'
+import { useAuth } from '../auth'
+import { getRuntimeConfig } from '../config/runtimeConfig'
 
 interface CardViewProps {
   profile: Profile
@@ -18,10 +23,67 @@ export function CardView({ profile, profileId }: CardViewProps) {
   const theme = getTheme(profile.theme)
   const hasLinks = profile.links.length > 0
   const [showQRModal, setShowQRModal] = useState(false)
+  const [isSavingContact, setIsSavingContact] = useState(false)
+  const { session, isAuthenticated } = useAuth()
+  const [ownProfileId, setOwnProfileId] = useState<string | null>(null)
+  const [showSaveConnectionModal, setShowSaveConnectionModal] = useState(false)
+
+  // Only signed-in viewers can save a connection, and never for their own
+  // card — fetch which profile id (if any) belongs to the viewer so that
+  // case can be excluded. Skipped entirely for anonymous viewers, which is
+  // the common case for a shared card link.
+  useEffect(() => {
+    if (!isAuthenticated || !session?.idToken) {
+      setOwnProfileId(null)
+      return
+    }
+
+    let cancelled = false
+    fetch(`${getRuntimeConfig().apiBase}/api/profile/me`, {
+      headers: { Authorization: `Bearer ${session.idToken}` },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { id?: string } | null) => {
+        if (!cancelled) setOwnProfileId(data?.id ?? null)
+      })
+      .catch(() => {
+        if (!cancelled) setOwnProfileId(null)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [isAuthenticated, session?.idToken])
+
+  const canSaveAsConnection =
+    isAuthenticated && !!session?.idToken && !!profileId && ownProfileId !== profileId
+
+  useEffect(() => {
+    const color =
+      profile.theme === 'custom'
+        ? (profile.customTheme?.bg ?? '')
+        : (themeBgColors[profile.theme] ?? '')
+    document.documentElement.style.backgroundColor = color
+    return () => {
+      document.documentElement.style.backgroundColor = ''
+    }
+  }, [profile.theme, profile.customTheme])
+
+  async function handleSaveContact() {
+    setIsSavingContact(true)
+    try {
+      const photo = profile.imageUrl ? await fetchImageAsVCardPhoto(profile.imageUrl) : null
+      const vcard = buildVCard(profile, photo ?? undefined)
+      downloadVCardFile(vcard, `${profileId ?? 'badgeit'}.vcf`)
+    } finally {
+      setIsSavingContact(false)
+    }
+  }
 
   return (
     <article
       className={`flex min-h-screen flex-col items-center px-4 py-8 ${theme.bg}`}
+      style={getCustomThemeStyle(profile)}
       data-testid="card-view"
     >
       <div className="w-full max-w-md space-y-6">
@@ -57,6 +119,11 @@ export function CardView({ profile, profileId }: CardViewProps) {
         {profile.displayName && (
           <h1 className={`text-center text-3xl font-bold ${theme.text}`}>
             {profile.displayName}
+            {profile.pronouns && (
+              <span className={`ml-2 text-lg font-normal ${theme.textMuted}`}>
+                ({profile.pronouns})
+              </span>
+            )}
           </h1>
         )}
 
@@ -69,6 +136,14 @@ export function CardView({ profile, profileId }: CardViewProps) {
 
         {/* Contact Info */}
         <div className="space-y-3">
+          {/* Location */}
+          {profile.location && (
+            <div className={`flex items-center gap-3 rounded-lg px-4 py-3 ${theme.accent}`}>
+              <LocationIcon className="h-5 w-5 shrink-0" />
+              <span className="truncate">{profile.location}</span>
+            </div>
+          )}
+
           {/* Email — shown if displayEmail is true */}
           {profile.displayEmail && (
             <a
@@ -115,6 +190,29 @@ export function CardView({ profile, profileId }: CardViewProps) {
           </nav>
         )}
 
+        {/* Download Contact Card */}
+        <button
+          type="button"
+          onClick={handleSaveContact}
+          disabled={isSavingContact}
+          className={`flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3 font-medium transition-opacity hover:opacity-80 disabled:opacity-50 ${theme.accent}`}
+        >
+          <DownloadIcon className="h-5 w-5 shrink-0" />
+          {isSavingContact ? 'Preparing contact...' : 'Download Contact Card'}
+        </button>
+
+        {/* Save as Connection — signed-in viewers only, never on your own card */}
+        {canSaveAsConnection && (
+          <button
+            type="button"
+            onClick={() => setShowSaveConnectionModal(true)}
+            className={`flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3 font-medium transition-opacity hover:opacity-80 ${theme.accent}`}
+          >
+            <SaveIcon className="h-5 w-5 shrink-0" />
+            Save as Connection
+          </button>
+        )}
+
         {/* Footer */}
         <footer className={`pt-8 text-center text-sm ${theme.textMuted}`}>
           <a
@@ -134,6 +232,19 @@ export function CardView({ profile, profileId }: CardViewProps) {
           onClose={() => setShowQRModal(false)}
           imageUrl={profile.imageUrl}
           showPhotoToggle={false}
+        />
+      )}
+
+      {canSaveAsConnection && profileId && session?.idToken && (
+        <SaveConnectionModal
+          isOpen={showSaveConnectionModal}
+          onClose={() => setShowSaveConnectionModal(false)}
+          idToken={session.idToken}
+          prefill={{
+            name: profile.displayName ?? 'Someone',
+            photoUrl: profile.imageUrl,
+            sourceProfileId: profileId,
+          }}
         />
       )}
     </article>

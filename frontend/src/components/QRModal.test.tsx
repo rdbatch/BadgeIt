@@ -66,7 +66,6 @@ describe('QRModal', () => {
       const user = userEvent.setup()
       render(<QRModal {...defaultProps} />)
 
-      const backdrop = screen.getByRole('dialog').parentElement ?? screen.getByRole('dialog')
       // The backdrop is the outer div with onClick
       const outerDiv = screen.getByRole('dialog')
       await user.click(outerDiv)

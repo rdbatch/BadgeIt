@@ -26,24 +26,44 @@ interface StoredProfile {
   display_name?: string
   tagline?: string
   phone?: string
+  location?: string
+  pronouns?: string
   image_url?: string
   theme: string
+  custom_theme?: { bg: string; text: string; text_muted: string; accent: string }
+  view_count?: number
   display_email: boolean
   links: Array<{ platform: string; url: string; label?: string }>
 }
 
+/** Connection in the API's wire format (snake_case), as the pages consume it. */
+interface StoredConnection {
+  id: string
+  name: string
+  notes?: string
+  event?: string
+  photo_url?: string
+  source_profile_id?: string
+  created_at: string
+}
+
 interface MockStore {
   profile: StoredProfile | null
+  connections: StoredConnection[]
 }
 
 function readStore(): MockStore {
   try {
     const raw = localStorage.getItem(MOCK_STORE_KEY)
-    if (raw) return JSON.parse(raw) as MockStore
+    if (raw) {
+      // Defensive against a store written before `connections` existed.
+      const parsed = JSON.parse(raw) as Partial<MockStore>
+      return { profile: parsed.profile ?? null, connections: parsed.connections ?? [] }
+    }
   } catch {
     // Corrupt store — fall through to a fresh one.
   }
-  return { profile: null }
+  return { profile: null, connections: [] }
 }
 
 function writeStore(store: MockStore): void {
@@ -71,6 +91,7 @@ export function seedDemoProfile(): void {
         { platform: 'website', url: 'https://example.com' },
       ],
     },
+    connections: [],
   })
 }
 
@@ -136,11 +157,14 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
   const method = request.method.toUpperCase()
   const store = readStore()
 
-  // Public card lookup — the only /api route without auth.
+  // Public card lookup — the only /api route without auth. Mirrors the real
+  // backend's best-effort view counter on every public fetch.
   const publicMatch = pathname.match(/^\/api\/profile\/([^/]+)$/)
   if (method === 'GET' && publicMatch && publicMatch[1] !== 'me') {
     if (store.profile && publicMatch[1] === store.profile.id) {
-      return json(store.profile)
+      const viewed = { ...store.profile, view_count: (store.profile.view_count ?? 0) + 1 }
+      writeStore({ ...store, profile: viewed })
+      return json(viewed)
     }
     return json({ message: 'Not found' }, 404)
   }
@@ -161,7 +185,7 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
       id: store.profile?.id ?? MOCK_PROFILE_ID,
       image_url: store.profile?.image_url,
     }
-    writeStore({ profile })
+    writeStore({ ...store, profile })
     return json(profile)
   }
 
@@ -172,12 +196,44 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
       content_type: string
     }
     const imageUrl = `data:${body.content_type};base64,${body.image_data}`
-    writeStore({ profile: { ...store.profile, image_url: imageUrl } })
+    writeStore({ ...store, profile: { ...store.profile, image_url: imageUrl } })
     return json({ image_url: imageUrl })
   }
 
   if (method === 'DELETE' && pathname === '/api/profile') {
-    writeStore({ profile: null })
+    writeStore({ ...store, profile: null })
+    return new Response(null, { status: 204 })
+  }
+
+  if (method === 'GET' && pathname === '/api/connections') {
+    return json(store.connections)
+  }
+
+  if (method === 'POST' && pathname === '/api/connections') {
+    const body = (await request.json()) as {
+      name: string
+      notes?: string
+      event?: string
+      photo_url?: string
+      source_profile_id?: string
+    }
+    const connection: StoredConnection = {
+      id: crypto.randomUUID().replace(/-/g, '').slice(0, 12),
+      name: body.name,
+      notes: body.notes,
+      event: body.event,
+      photo_url: body.photo_url,
+      source_profile_id: body.source_profile_id,
+      created_at: new Date().toISOString(),
+    }
+    writeStore({ ...store, connections: [connection, ...store.connections] })
+    return json(connection)
+  }
+
+  const connectionDeleteMatch = pathname.match(/^\/api\/connections\/([^/]+)$/)
+  if (method === 'DELETE' && connectionDeleteMatch) {
+    const id = connectionDeleteMatch[1]
+    writeStore({ ...store, connections: store.connections.filter((c) => c.id !== id) })
     return new Response(null, { status: 204 })
   }
 

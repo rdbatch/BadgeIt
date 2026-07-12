@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { vi } from 'vitest'
 import { CardView } from './CardView'
@@ -11,6 +11,14 @@ vi.mock('react-qr-code', () => ({
       <text>{props.value as string}</text>
     </svg>
   ),
+}))
+
+// Default to an anonymous viewer — most tests in this file exercise the
+// public, read-only rendering and don't care about auth. Tests that do
+// (the "Save as Connection" describe block) override this per-test.
+const useAuthMock = vi.fn().mockReturnValue({ isAuthenticated: false, session: null })
+vi.mock('../auth', () => ({
+  useAuth: () => useAuthMock(),
 }))
 
 const fullProfile: Profile = {
@@ -85,6 +93,38 @@ describe('CardView', () => {
       render(<CardView profile={noLinks} />)
 
       expect(screen.queryByLabelText('Social links')).not.toBeInTheDocument()
+    })
+
+    it('does not render location or pronouns when not provided', () => {
+      render(<CardView profile={minimalProfile} />)
+
+      expect(screen.queryByText(/San Francisco/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/she\/her/)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('location and pronouns', () => {
+    it('renders pronouns next to the display name when provided', () => {
+      const withPronouns: Profile = { ...fullProfile, pronouns: 'she/her' }
+      render(<CardView profile={withPronouns} />)
+
+      const heading = screen.getByRole('heading', { level: 1 })
+      expect(heading).toHaveTextContent('Test User')
+      expect(heading).toHaveTextContent('(she/her)')
+    })
+
+    it('renders location when provided', () => {
+      const withLocation: Profile = { ...fullProfile, location: 'San Francisco, CA' }
+      render(<CardView profile={withLocation} />)
+
+      expect(screen.getByText('San Francisco, CA')).toBeInTheDocument()
+    })
+
+    it('does not render location row when not provided', () => {
+      const noLocation: Profile = { ...fullProfile, location: undefined }
+      render(<CardView profile={noLocation} />)
+
+      expect(screen.queryByText('San Francisco, CA')).not.toBeInTheDocument()
     })
   })
 
@@ -211,6 +251,160 @@ describe('CardView', () => {
 
       await user.click(screen.getByLabelText('Close QR code modal'))
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('Download Contact Card button', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals()
+      vi.restoreAllMocks()
+    })
+
+    it('renders the Download Contact Card button', () => {
+      render(<CardView profile={fullProfile} />)
+      expect(screen.getByRole('button', { name: 'Download Contact Card' })).toBeInTheDocument()
+    })
+
+    it('downloads a vCard file when clicked', async () => {
+      const user = userEvent.setup()
+
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          headers: { get: () => 'image/jpeg' },
+          blob: () => Promise.resolve(new Blob(['fake'], { type: 'image/jpeg' })),
+        }),
+      )
+
+      const createObjectURL = vi.fn().mockReturnValue('blob:mock-url')
+      const revokeObjectURL = vi.fn()
+      vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL })
+
+      const clickSpy = vi.fn()
+      const realCreateElement = document.createElement.bind(document)
+      vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+        const el = realCreateElement(tag)
+        if (tag === 'a') vi.spyOn(el, 'click').mockImplementation(clickSpy)
+        return el
+      })
+
+      render(<CardView profile={fullProfile} profileId="abc123" />)
+      await user.click(screen.getByRole('button', { name: 'Download Contact Card' }))
+
+      await vi.waitFor(() => {
+        expect(clickSpy).toHaveBeenCalled()
+      })
+      expect(createObjectURL).toHaveBeenCalled()
+    })
+  })
+
+  describe('custom theme', () => {
+    it('applies CSS custom properties from customTheme when theme is custom', () => {
+      const customProfile: Profile = {
+        ...fullProfile,
+        theme: 'custom',
+        customTheme: { bg: '#111111', text: '#222222', textMuted: '#333333', accent: '#444444' },
+      }
+      render(<CardView profile={customProfile} />)
+
+      const card = screen.getByTestId('card-view')
+      expect(card).toHaveClass('[background-color:var(--badgeit-bg)]')
+      expect(card.style.getPropertyValue('--badgeit-bg')).toBe('#111111')
+      expect(card.style.getPropertyValue('--badgeit-accent')).toBe('#444444')
+    })
+
+    it('does not apply custom theme styles for a preset theme', () => {
+      render(<CardView profile={fullProfile} />)
+      const card = screen.getByTestId('card-view')
+      expect(card.style.getPropertyValue('--badgeit-bg')).toBe('')
+    })
+  })
+
+  describe('Save as Connection', () => {
+    afterEach(() => {
+      useAuthMock.mockReturnValue({ isAuthenticated: false, session: null })
+      vi.unstubAllGlobals()
+    })
+
+    it('does not render for an anonymous viewer', () => {
+      render(<CardView profile={fullProfile} profileId="abc123" />)
+      expect(screen.queryByRole('button', { name: 'Save as Connection' })).not.toBeInTheDocument()
+    })
+
+    it('does not render without a profileId, even when signed in', () => {
+      useAuthMock.mockReturnValue({
+        isAuthenticated: true,
+        session: { idToken: 'test-token' },
+      })
+      render(<CardView profile={fullProfile} />)
+      expect(screen.queryByRole('button', { name: 'Save as Connection' })).not.toBeInTheDocument()
+    })
+
+    it('renders for a signed-in viewer looking at someone else\'s card', async () => {
+      useAuthMock.mockReturnValue({
+        isAuthenticated: true,
+        session: { idToken: 'test-token' },
+      })
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve({ id: 'my-own-id' }),
+        }),
+      )
+
+      render(<CardView profile={fullProfile} profileId="someone-elses-id" />)
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Save as Connection' })).toBeInTheDocument()
+      })
+    })
+
+    it('does not render when viewing your own card', async () => {
+      useAuthMock.mockReturnValue({
+        isAuthenticated: true,
+        session: { idToken: 'test-token' },
+      })
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: () => Promise.resolve({ id: 'my-own-id' }),
+        }),
+      )
+
+      render(<CardView profile={fullProfile} profileId="my-own-id" />)
+
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: 'Save as Connection' })).not.toBeInTheDocument()
+      })
+    })
+
+    it('opens the save-connection modal when clicked', async () => {
+      const user = userEvent.setup()
+      useAuthMock.mockReturnValue({
+        isAuthenticated: true,
+        session: { idToken: 'test-token' },
+      })
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) => {
+          if (url.includes('/api/profile/me')) {
+            return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 'my-own-id' }) })
+          }
+          return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
+        }),
+      )
+
+      render(<CardView profile={fullProfile} profileId="someone-elses-id" />)
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Save as Connection' })).toBeInTheDocument()
+      })
+      await user.click(screen.getByRole('button', { name: 'Save as Connection' }))
+
+      expect(screen.getByRole('dialog', { name: 'Save Connection' })).toBeInTheDocument()
     })
   })
 })

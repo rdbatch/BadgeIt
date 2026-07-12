@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import QRCode from 'react-qr-code'
+import { useOverlayClose } from '../hooks/useOverlayClose'
 
 interface QRModalProps {
   profileId: string
@@ -154,14 +155,14 @@ export function QRModal({
     }
   }, [profileId, showPhoto, imageUrl])
 
+  const overlayClose = useOverlayClose(onClose)
+
   if (!isOpen) return null
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
-      }}
+      {...overlayClose}
       role="dialog"
       aria-modal="true"
       aria-labelledby="qr-modal-title"

@@ -175,6 +175,7 @@ export class AuthStack extends cdk.Stack {
       stringValue: this.userPoolClient.userPoolClientId,
     });
 
+
     // Outputs retained for human visibility (console/CLI) only — no
     // exportName, so no other stack can create a CloudFormation import
     // dependency on them.

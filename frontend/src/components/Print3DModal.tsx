@@ -7,6 +7,7 @@ import {
   generateQr3mf,
   QR3MF_LIMITS,
 } from '../lib/qr3mf'
+import { useOverlayClose } from '../hooks/useOverlayClose'
 
 // Loaded on demand: the preview pulls in three.js, which shouldn't weigh
 // down the edit page for users who never open this modal.
@@ -116,14 +117,14 @@ export function Print3DModal({ profileId, isOpen, onClose }: Print3DModalProps) 
     URL.revokeObjectURL(url)
   }
 
+  const overlayClose = useOverlayClose(onClose)
+
   if (!isOpen) return null
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
-      }}
+      {...overlayClose}
       role="dialog"
       aria-modal="true"
       aria-labelledby="print3d-modal-title"

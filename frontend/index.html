@@ -5,6 +5,45 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Badgeit</title>
+    <script>
+      // Paints the right background before React mounts, so a full page
+      // load/refresh doesn't flash light before switching to the stored
+      // theme. Keep bgColors in sync with themeBgColors in
+      // src/constants/themes.ts — it's duplicated here because this must
+      // run synchronously, before any module script loads.
+      (function () {
+        try {
+          var bgColors = {
+            light: '#ffffff',
+            dark: '#111827',
+            ocean: '#1e293b',
+            sunset: '#fff7ed',
+            forest: '#022c22',
+            lavender: '#faf5ff',
+            slate: '#f1f5f9',
+            rose: '#fff1f2',
+            mint: '#f0fdfa',
+          }
+          var color
+          if (localStorage.getItem('badgeit-auth-session')) {
+            var cached = JSON.parse(localStorage.getItem('badgeit-last-theme') || 'null')
+            if (cached) {
+              color = cached.theme === 'custom' ? cached.customTheme && cached.customTheme.bg : bgColors[cached.theme]
+            }
+          } else {
+            var scheme = localStorage.getItem('badgeit-color-scheme')
+            if (scheme !== 'light' && scheme !== 'dark') {
+              scheme =
+                window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+                  ? 'dark'
+                  : 'light'
+            }
+            color = bgColors[scheme]
+          }
+          if (color) document.documentElement.style.backgroundColor = color
+        } catch (e) {}
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

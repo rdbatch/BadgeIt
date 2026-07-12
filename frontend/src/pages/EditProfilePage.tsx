@@ -1,16 +1,26 @@
 import { useState, useRef, useEffect, useCallback, type FormEvent, type ChangeEvent } from 'react'
 import { useNavigate } from 'react-router'
 import { useAuth } from '../auth'
-import { themes } from '../constants/themes'
-import { getPlatformLabel } from '../components/SocialIcons'
+import {
+  themes,
+  getCustomThemeStyle,
+  themeBgColors,
+  getCachedProfileTheme,
+  setCachedProfileTheme,
+} from '../constants/themes'
+import { getPlatformIcon, getPlatformLabel } from '../constants/socialPlatforms'
 import { QRModal } from '../components/QRModal'
 import { Print3DModal } from '../components/Print3DModal'
+import { DownloadDropdown } from '../components/DownloadDropdown'
+import { HeaderMenu } from '../components/HeaderMenu'
+import { CustomThemeModal } from '../components/CustomThemeModal'
 import { getRuntimeConfig } from '../config/runtimeConfig'
-import type { SocialLink, SocialPlatform, ThemeId } from '../types/profile'
+import { parseVCard } from '../lib/vcardImport'
+import { DEFAULT_CUSTOM_THEME_COLORS, type CustomThemeColors, type SocialLink, type SocialPlatform, type ThemeId } from '../types/profile'
 
 const SOCIAL_PLATFORMS: SocialPlatform[] = [
   'linkedin', 'github', 'twitter', 'instagram', 'youtube',
-  'mastodon', 'bluesky', 'website', 'custom',
+  'mastodon', 'bluesky', 'website', 'calendar', 'custom',
 ]
 
 export function EditProfilePage() {
@@ -27,8 +37,17 @@ export function EditProfilePage() {
   const [displayName, setDisplayName] = useState('')
   const [tagline, setTagline] = useState('')
   const [phone, setPhone] = useState('')
+  const [location, setLocation] = useState('')
+  const [pronouns, setPronouns] = useState('')
   const [links, setLinks] = useState<SocialLink[]>([])
-  const [theme, setTheme] = useState<ThemeId>('light')
+  // Seeded from the last-known cached theme (rather than a hardcoded
+  // 'light') so switching screens doesn't flash light before the profile
+  // fetch below resolves.
+  const [theme, setTheme] = useState<ThemeId>(() => getCachedProfileTheme()?.theme ?? 'light')
+  const [customTheme, setCustomTheme] = useState<CustomThemeColors | undefined>(
+    () => getCachedProfileTheme()?.customTheme,
+  )
+  const [showCustomThemeModal, setShowCustomThemeModal] = useState(false)
   const [displayEmail, setDisplayEmail] = useState(true)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [imageFile, setImageFile] = useState<File | null>(null)
@@ -41,8 +60,11 @@ export function EditProfilePage() {
   const [showQRModal, setShowQRModal] = useState(false)
   const [showPrint3DModal, setShowPrint3DModal] = useState(false)
   const [profileId, setProfileId] = useState('')
+  const [viewCount, setViewCount] = useState<number | null>(null)
+  const [openPlatformIndex, setOpenPlatformIndex] = useState<number | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const vcardInputRef = useRef<HTMLInputElement>(null)
   const email = session?.email ?? ''
 
   // If a request comes back 401 despite the proactive token refresh (e.g.
@@ -75,11 +97,24 @@ export function EditProfilePage() {
         if (res.ok) {
           const data = await res.json()
           setProfileId(data.id)
+          setViewCount(data.view_count ?? 0)
           setDisplayName(data.display_name ?? '')
           setTagline(data.tagline ?? '')
           setPhone(data.phone ?? '')
+          setLocation(data.location ?? '')
+          setPronouns(data.pronouns ?? '')
           setLinks(data.links)
           setTheme(data.theme)
+          const loadedCustomTheme = data.custom_theme
+            ? {
+                bg: data.custom_theme.bg,
+                text: data.custom_theme.text,
+                textMuted: data.custom_theme.text_muted,
+                accent: data.custom_theme.accent,
+              }
+            : undefined
+          setCustomTheme(loadedCustomTheme)
+          setCachedProfileTheme(data.theme, loadedCustomTheme)
           setDisplayEmail(data.display_email ?? true)
           if (data.image_url) {
             setImagePreview(data.image_url)
@@ -97,6 +132,22 @@ export function EditProfilePage() {
     loadProfile()
   }, [session?.idToken, handleUnauthorized])
 
+  useEffect(() => {
+    const color =
+      theme === 'custom' ? (customTheme?.bg ?? '') : (themeBgColors[theme] ?? '')
+    document.documentElement.style.backgroundColor = color
+    return () => {
+      document.documentElement.style.backgroundColor = ''
+    }
+  }, [theme, customTheme])
+
+  useEffect(() => {
+    if (openPlatformIndex === null) return
+    function close() { setOpenPlatformIndex(null) }
+    document.addEventListener('click', close)
+    return () => document.removeEventListener('click', close)
+  }, [openPlatformIndex])
+
   async function handleSave(e: FormEvent) {
     e.preventDefault()
     setIsSaving(true)
@@ -108,9 +159,20 @@ export function EditProfilePage() {
         display_name: displayName || undefined,
         tagline: tagline || undefined,
         phone: phone || undefined,
+        location: location || undefined,
+        pronouns: pronouns || undefined,
         theme,
+        custom_theme:
+          theme === 'custom' && customTheme
+            ? {
+                bg: customTheme.bg,
+                text: customTheme.text,
+                text_muted: customTheme.textMuted,
+                accent: customTheme.accent,
+              }
+            : undefined,
         display_email: displayEmail,
-        links,
+        links: links.map((link) => ({ ...link, url: normalizeLinkUrl(link.url) })),
       }
 
       const res = await fetch(`${getRuntimeConfig().apiBase}/api/profile`, {
@@ -138,6 +200,7 @@ export function EditProfilePage() {
       if (saved.id) {
         setProfileId(saved.id)
       }
+      setCachedProfileTheme(theme, customTheme)
 
       // Upload image if changed
       if (imageFile) {
@@ -186,7 +249,7 @@ export function EditProfilePage() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session?.idToken}`,
         },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, access_token: session?.accessToken }),
       })
 
       if (res.status === 401) {
@@ -218,6 +281,37 @@ export function EditProfilePage() {
       setImagePreview(ev.target?.result as string)
     }
     reader.readAsDataURL(file)
+  }
+
+  // Only fills fields that are still blank and appends links not already
+  // present (by URL) — importing never overwrites what's already typed in.
+  function handleVCardImport(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string
+      const parsed = parseVCard(text)
+
+      if (parsed.displayName && !displayName) setDisplayName(parsed.displayName)
+      if (parsed.tagline && !tagline) setTagline(parsed.tagline.slice(0, 120))
+      if (parsed.phone && !phone) setPhone(parsed.phone)
+      if (parsed.location && !location) setLocation(parsed.location)
+      if (parsed.pronouns && !pronouns) setPronouns(parsed.pronouns)
+
+      if (parsed.links.length > 0) {
+        setLinks((prev) => {
+          const existingUrls = new Set(prev.map((link) => link.url))
+          const newLinks = parsed.links.filter((link) => !existingUrls.has(link.url))
+          return [...prev, ...newLinks]
+        })
+      }
+
+      setSaveMessage('Imported from vCard — review and Save to keep the changes.')
+    }
+    reader.readAsText(file)
+    e.target.value = ''
   }
 
   function addLink() {
@@ -262,89 +356,87 @@ export function EditProfilePage() {
   }
 
   return (
-    <main className={`min-h-screen px-4 py-8 transition-colors duration-300 ${activeTheme.bg}`}>
+    <main
+      className={`min-h-screen px-4 py-8 transition-colors duration-300 ${activeTheme.bg}`}
+      style={getCustomThemeStyle({ theme, customTheme })}
+    >
       <div className="mx-auto max-w-lg">
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">
-          <h1 className={`text-2xl font-bold ${activeTheme.text}`}>Edit Your Card</h1>
-          <button
-            type="button"
-            onClick={logout}
-            className={`text-sm transition-opacity hover:opacity-80 ${activeTheme.textMuted}`}
+          <a
+            href="/connections"
+            className={`rounded-lg border border-current/20 px-4 py-2 text-sm font-medium transition-opacity hover:opacity-80 ${activeTheme.text}`}
           >
-            Sign out
-          </button>
+            My Connections
+          </a>
+          <HeaderMenu
+            themeTextClass={activeTheme.text}
+            items={[
+              {
+                label: 'View Your Card',
+                onClick: () => window.open(`/p/${profileId}`, '_blank'),
+                disabled: !profileId,
+              },
+              {
+                label: 'Import from vCard',
+                onClick: () => vcardInputRef.current?.click(),
+              },
+              {
+                label: 'About',
+                onClick: () => navigate('/about'),
+              },
+              {
+                label: 'Sign Out',
+                onClick: logout,
+              },
+            ]}
+          />
+          <input
+            ref={vcardInputRef}
+            type="file"
+            accept=".vcf,text/vcard,text/x-vcard"
+            onChange={handleVCardImport}
+            className="hidden"
+            aria-label="Import from vCard"
+          />
         </div>
 
         <form onSubmit={handleSave} className="space-y-6">
-          {/* Profile Picture */}
-          <section aria-labelledby="photo-heading">
-            <h2 id="photo-heading" className={`text-sm font-medium ${activeTheme.text}`}>
-              Profile Photo
-            </h2>
-            <div className="mt-2 flex items-center gap-4">
+          <h2 className={`text-center text-2xl font-bold ${activeTheme.text}`}>Edit Your Card</h2>
+
+          {/* Profile Picture - centered, clickable with hover overlay */}
+          <div className="flex justify-center">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="group relative"
+              aria-label={imagePreview ? 'Change profile photo' : 'Upload profile photo'}
+            >
               {imagePreview ? (
                 <img
                   src={imagePreview}
                   alt="Profile preview"
-                  className="h-20 w-20 rounded-full object-cover"
+                  className="h-24 w-24 rounded-full object-cover"
                 />
               ) : (
-                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-gray-200 text-gray-400">
+                <div className="flex h-24 w-24 items-center justify-center rounded-full bg-gray-200 text-gray-400">
                   <svg className="h-8 w-8" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
                   </svg>
                 </div>
               )}
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className={`rounded-lg border border-current/20 px-4 py-2 text-sm transition-opacity hover:opacity-80 ${activeTheme.text}`}
-              >
-                {imagePreview ? 'Change photo' : 'Upload photo'}
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleImageChange}
-                className="hidden"
-                aria-label="Upload profile photo"
-              />
-            </div>
-          </section>
-
-          {/* Email (read-only) */}
-          <div>
-            <label className={`block text-sm font-medium ${activeTheme.text}`}>
-              Email
-            </label>
-            <p className={`mt-1 rounded-lg border border-current/20 px-4 py-3 ${activeTheme.textMuted}`}>
-              {email}
-            </p>
-          </div>
-
-          {/* Display Email Toggle */}
-          <div className="flex items-center justify-between">
-            <label htmlFor="displayEmail" className={`text-sm font-medium ${activeTheme.text}`}>
-              Display Email
-            </label>
-            <button
-              id="displayEmail"
-              type="button"
-              role="switch"
-              aria-checked={displayEmail}
-              onClick={() => setDisplayEmail(!displayEmail)}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:outline-none ${
-                displayEmail ? 'bg-blue-600' : 'bg-gray-300'
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition duration-200 ${
-                  displayEmail ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
+              <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
+                <span className="text-xs font-medium text-white">Upload Photo</span>
+              </div>
             </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleImageChange}
+              className="hidden"
+              aria-label="Upload profile photo"
+            />
           </div>
 
           {/* Display Name */}
@@ -362,6 +454,22 @@ export function EditProfilePage() {
             />
           </div>
 
+          {/* Pronouns */}
+          <div>
+            <label htmlFor="pronouns" className={`block text-sm font-medium ${activeTheme.text}`}>
+              Pronouns <span className={`font-normal ${activeTheme.textMuted}`}>(optional)</span>
+            </label>
+            <input
+              id="pronouns"
+              type="text"
+              value={pronouns}
+              onChange={(e) => setPronouns(e.target.value)}
+              placeholder="she/her"
+              maxLength={30}
+              className={`mt-1 block w-full rounded-lg border border-current/20 bg-transparent px-4 py-3 placeholder-current/40 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none ${activeTheme.text}`}
+            />
+          </div>
+
           {/* Tagline */}
           <div>
             <label htmlFor="tagline" className={`block text-sm font-medium ${activeTheme.text}`}>
@@ -371,14 +479,62 @@ export function EditProfilePage() {
               id="tagline"
               type="text"
               value={tagline}
-              onChange={(e) => setTagline(e.target.value.slice(0, 100))}
+              onChange={(e) => setTagline(e.target.value.slice(0, 120))}
               placeholder="Staff Engineer @ Acme Corp"
-              maxLength={100}
+              maxLength={120}
               className={`mt-1 block w-full rounded-lg border border-current/20 bg-transparent px-4 py-3 placeholder-current/40 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none ${activeTheme.text}`}
             />
             <p className={`mt-1 text-right text-xs ${activeTheme.textMuted}`}>
-              {tagline.length}/100
+              {tagline.length}/120
             </p>
+          </div>
+
+          {/* Location */}
+          <div>
+            <label htmlFor="location" className={`block text-sm font-medium ${activeTheme.text}`}>
+              Location <span className={`font-normal ${activeTheme.textMuted}`}>(optional)</span>
+            </label>
+            <input
+              id="location"
+              type="text"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              placeholder="San Francisco, CA"
+              maxLength={100}
+              className={`mt-1 block w-full rounded-lg border border-current/20 bg-transparent px-4 py-3 placeholder-current/40 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none ${activeTheme.text}`}
+            />
+          </div>
+
+          {/* Email + Display Email Toggle */}
+          <div>
+            <label className={`block text-sm font-medium ${activeTheme.text}`}>
+              Email
+            </label>
+            <div className={`mt-1 flex items-center rounded-lg border border-current/20 px-4 py-3 ${activeTheme.textMuted}`}>
+              <span className="flex-1 truncate">{email}</span>
+              <button
+                id="displayEmail"
+                type="button"
+                role="switch"
+                aria-checked={displayEmail}
+                aria-label="Show email on card"
+                onClick={() => setDisplayEmail(!displayEmail)}
+                className="ml-3 flex shrink-0 cursor-pointer items-center gap-1.5 focus:outline-none"
+              >
+                <span className="text-xs">Show?</span>
+                <span
+                  className={`relative inline-flex h-5 w-9 rounded-full border-2 border-transparent transition-colors duration-200 ${
+                    displayEmail ? 'bg-blue-600' : 'bg-gray-300'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200 ${
+                      displayEmail ? 'translate-x-4' : 'translate-x-0'
+                    }`}
+                  />
+                </span>
+              </button>
+            </div>
           </div>
 
           {/* Phone */}
@@ -402,68 +558,103 @@ export function EditProfilePage() {
               Social Links
             </h2>
             <div className="mt-2 space-y-3">
-              {links.map((link, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  <select
-                    value={link.platform}
-                    onChange={(e) => updateLink(index, 'platform', e.target.value)}
-                    className={`rounded-lg border border-current/20 bg-transparent px-3 py-2 text-sm ${activeTheme.text}`}
-                    aria-label={`Platform for link ${index + 1}`}
-                  >
-                    {SOCIAL_PLATFORMS.map((p) => (
-                      <option key={p} value={p}>
-                        {getPlatformLabel(p)}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="url"
-                    value={link.url}
-                    onChange={(e) => updateLink(index, 'url', e.target.value)}
-                    placeholder="https://..."
-                    className={`min-w-0 flex-1 rounded-lg border border-current/20 bg-transparent px-3 py-2 text-sm placeholder-current/40 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none ${activeTheme.text}`}
-                    aria-label={`URL for link ${index + 1}`}
-                  />
-                  {link.platform === 'custom' && (
+              {links.map((link, index) => {
+                const PlatformIcon = getPlatformIcon(link.platform)
+                return (
+                  <div key={index} className="flex items-center gap-2">
+                    {/* Platform icon picker */}
+                    <div className="relative shrink-0">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setOpenPlatformIndex(openPlatformIndex === index ? null : index)
+                        }}
+                        className={`flex h-10 w-10 items-center justify-center rounded-lg border border-current/20 transition-opacity hover:opacity-80 ${activeTheme.text}`}
+                        aria-label={`Platform: ${getPlatformLabel(link.platform)}`}
+                        aria-expanded={openPlatformIndex === index}
+                        aria-haspopup="listbox"
+                      >
+                        <PlatformIcon className="h-5 w-5" />
+                      </button>
+                      {openPlatformIndex === index && (
+                        <div
+                          role="listbox"
+                          aria-label="Select platform"
+                          className={`absolute left-0 top-full z-10 mt-1 w-48 rounded-lg border border-current/20 py-1 shadow-lg ${activeTheme.bg}`}
+                        >
+                          {SOCIAL_PLATFORMS.map((p) => {
+                            const Icon = getPlatformIcon(p)
+                            return (
+                              <button
+                                key={p}
+                                type="button"
+                                role="option"
+                                aria-selected={link.platform === p}
+                                onClick={() => {
+                                  updateLink(index, 'platform', p)
+                                  setOpenPlatformIndex(null)
+                                }}
+                                className={`flex w-full items-center gap-3 px-4 py-2 text-sm transition-opacity hover:opacity-70 ${activeTheme.text} ${link.platform === p ? 'font-semibold' : ''}`}
+                              >
+                                <Icon className="h-4 w-4 shrink-0" />
+                                {getPlatformLabel(p)}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
                     <input
                       type="text"
-                      value={link.label ?? ''}
-                      onChange={(e) => updateLink(index, 'label', e.target.value)}
-                      placeholder="Label"
-                      className={`w-24 rounded-lg border border-current/20 bg-transparent px-3 py-2 text-sm placeholder-current/40 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none ${activeTheme.text}`}
-                      aria-label={`Label for link ${index + 1}`}
+                      inputMode="url"
+                      value={link.url}
+                      onChange={(e) => updateLink(index, 'url', e.target.value)}
+                      placeholder="linkedin.com/in/you"
+                      className={`min-w-0 flex-1 rounded-lg border border-current/20 bg-transparent px-3 py-2 text-sm placeholder-current/40 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none ${activeTheme.text}`}
+                      aria-label={`URL for link ${index + 1}`}
                     />
-                  )}
-                  <div className="flex gap-1">
-                    <button
-                      type="button"
-                      onClick={() => moveLink(index, 'up')}
-                      disabled={index === 0}
-                      className={`rounded p-1 transition-opacity hover:opacity-80 disabled:opacity-30 ${activeTheme.textMuted}`}
-                      aria-label="Move link up"
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => moveLink(index, 'down')}
-                      disabled={index === links.length - 1}
-                      className={`rounded p-1 transition-opacity hover:opacity-80 disabled:opacity-30 ${activeTheme.textMuted}`}
-                      aria-label="Move link down"
-                    >
-                      ↓
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => removeLink(index)}
-                      className="rounded p-1 text-red-400 hover:text-red-600"
-                      aria-label="Remove link"
-                    >
-                      ✕
-                    </button>
+                    {link.platform === 'custom' && (
+                      <input
+                        type="text"
+                        value={link.label ?? ''}
+                        onChange={(e) => updateLink(index, 'label', e.target.value)}
+                        placeholder="Label"
+                        className={`w-24 rounded-lg border border-current/20 bg-transparent px-3 py-2 text-sm placeholder-current/40 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none ${activeTheme.text}`}
+                        aria-label={`Label for link ${index + 1}`}
+                      />
+                    )}
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        onClick={() => moveLink(index, 'up')}
+                        disabled={index === 0}
+                        className={`rounded p-1 transition-opacity hover:opacity-80 disabled:opacity-30 ${activeTheme.textMuted}`}
+                        aria-label="Move link up"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveLink(index, 'down')}
+                        disabled={index === links.length - 1}
+                        className={`rounded p-1 transition-opacity hover:opacity-80 disabled:opacity-30 ${activeTheme.textMuted}`}
+                        aria-label="Move link down"
+                      >
+                        ↓
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeLink(index)}
+                        className="rounded p-1 text-red-400 hover:text-red-600"
+                        aria-label="Remove link"
+                      >
+                        ✕
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
               <button
                 type="button"
                 onClick={addLink}
@@ -484,21 +675,40 @@ export function EditProfilePage() {
                 <button
                   key={t.id}
                   type="button"
-                  onClick={() => setTheme(t.id)}
-                  className={`flex flex-col items-center gap-1 rounded-lg border-2 p-2 transition-all ${
+                  onClick={() =>
+                    t.id === 'custom' ? setShowCustomThemeModal(true) : setTheme(t.id)
+                  }
+                  className={`flex flex-col items-center gap-1 rounded-lg border-2 p-2 transition-all ${activeTheme.text} ${
                     theme === t.id
                       ? 'border-blue-500 ring-2 ring-blue-200'
-                      : 'border-gray-200 hover:border-gray-300'
+                      : 'border-current/20 hover:border-current/40'
                   }`}
-                  aria-label={`Select ${t.name} theme`}
+                  aria-label={t.id === 'custom' ? 'Choose custom theme colors' : `Select ${t.name} theme`}
                   aria-pressed={theme === t.id}
                 >
-                  <div className={`h-8 w-8 rounded-full ${t.bg} border border-gray-200`} />
+                  {t.id === 'custom' ? (
+                    <div
+                      className="h-8 w-8 rounded-full border border-gray-200"
+                      style={{
+                        background:
+                          'conic-gradient(red, yellow, lime, cyan, blue, magenta, red)',
+                      }}
+                    />
+                  ) : (
+                    <div className={`h-8 w-8 rounded-full ${t.bg} border border-gray-200`} />
+                  )}
                   <span className={`text-xs ${activeTheme.textMuted}`}>{t.name}</span>
                 </button>
               ))}
             </div>
           </section>
+
+          {/* View Count */}
+          {profileId && viewCount !== null && (
+            <p className={`text-sm ${activeTheme.textMuted}`}>
+              {viewCount === 1 ? '1 view' : `${viewCount} views`}
+            </p>
+          )}
 
           {/* Save Message */}
           {saveMessage && (
@@ -519,22 +729,15 @@ export function EditProfilePage() {
             >
               {isSaving ? 'Saving...' : 'Save'}
             </button>
-            <button
-              type="button"
-              onClick={() => setShowQRModal(true)}
+            <DownloadDropdown
+              label="QR Code"
               disabled={!profileId}
-              className={`rounded-lg border border-current/20 px-4 py-3 text-sm font-medium transition-opacity hover:opacity-80 disabled:opacity-50 ${activeTheme.text}`}
-            >
-              QR Code
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowPrint3DModal(true)}
-              disabled={!profileId}
-              className={`rounded-lg border border-current/20 px-4 py-3 text-sm font-medium transition-opacity hover:opacity-80 disabled:opacity-50 ${activeTheme.text}`}
-            >
-              3D Print
-            </button>
+              themeTextClass={activeTheme.text}
+              options={[
+                { label: 'View / Save', onSelect: () => setShowQRModal(true) },
+                { label: '3D Print', onSelect: () => setShowPrint3DModal(true) },
+              ]}
+            />
             <button
               type="button"
               onClick={() => window.open(`/p/${profileId}`, '_blank')}
@@ -597,7 +800,7 @@ export function EditProfilePage() {
                     setShowDeleteModal(false)
                     setDeleteEmail('')
                   }}
-                  className={`rounded-lg border border-current/20 px-4 py-2 text-sm transition-opacity hover:opacity-80 ${activeTheme.text}`}
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 transition-opacity hover:opacity-80"
                 >
                   Cancel
                 </button>
@@ -625,9 +828,30 @@ export function EditProfilePage() {
             onClose={() => setShowPrint3DModal(false)}
           />
         )}
+
+        <CustomThemeModal
+          isOpen={showCustomThemeModal}
+          onClose={() => setShowCustomThemeModal(false)}
+          initialColors={customTheme ?? DEFAULT_CUSTOM_THEME_COLORS}
+          onApply={(colors) => {
+            setCustomTheme(colors)
+            setTheme('custom')
+          }}
+        />
       </div>
     </main>
   )
+}
+
+/**
+ * Prepends https:// to a link URL that's missing a scheme, so users can
+ * type "linkedin.com/in/x" without the save being rejected by the backend's
+ * http(s)-only validation. Left untouched if already schemed or blank.
+ */
+function normalizeLinkUrl(url: string): string {
+  const trimmed = url.trim()
+  if (trimmed === '' || /^https?:\/\//i.test(trimmed)) return trimmed
+  return `https://${trimmed}`
 }
 
 /**

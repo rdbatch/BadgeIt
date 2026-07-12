@@ -18,6 +18,15 @@ pub fn generate_profile_id() -> String {
     encode(&bytes)
 }
 
+/// Generates a random 12-character lowercase-hex connection ID token.
+/// Same generator as `generate_profile_id` — a distinct name because the
+/// two ID kinds are semantically unrelated (a connection is never looked
+/// up publicly like a profile is), not because they're generated
+/// differently.
+pub fn generate_connection_id() -> String {
+    generate_profile_id()
+}
+
 fn encode(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -53,5 +62,12 @@ mod tests {
         // 48-bit space should never collide in practice.
         let ids: HashSet<String> = (0..1000).map(|_| generate_profile_id()).collect();
         assert_eq!(ids.len(), 1000);
+    }
+
+    #[test]
+    fn connection_id_is_a_12_char_hex_string() {
+        let id = generate_connection_id();
+        assert_eq!(id.len(), 12);
+        assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
     }
 }
