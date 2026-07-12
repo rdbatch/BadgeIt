@@ -96,13 +96,19 @@ jobs:
         working-directory: infra
         run: npm ci
 
-      - name: Deploy backend stacks (Data, Auth, Api)
+      - name: Deploy backend stacks (Data, Auth, Api, Waf)
         working-directory: infra
+        # Waf is deployed here (not with Frontend below) because
+        # FrontendStack references its Web ACL ARN directly (via
+        # crossRegionReferences — see infra/bin/app.ts) rather than
+        # through SSM, so it must already exist before Frontend's
+        # `--exclusively` deploy runs.
         run: |
           npx cdk deploy \
             "BadgeIt-Data-${ENVIRONMENT}" \
             "BadgeIt-Auth-${ENVIRONMENT}" \
             "BadgeIt-Api-${ENVIRONMENT}" \
+            "BadgeIt-Waf-${ENVIRONMENT}" \
             --context environment="$ENVIRONMENT" \
             --context region="$REGION" \
             --context account="${{ vars.AWS_ACCOUNT_ID }}" \
@@ -137,6 +143,20 @@ jobs:
             --context "certificateArn=${{ vars.CERTIFICATE_ARN }}" \
             --require-approval never \
             --outputs-file cdk-outputs.json
+
+      - name: Deploy monitoring stack
+        working-directory: infra
+        # Must run after Api and Frontend — it resolves their SSM-published
+        # identifiers (function name, log group, distribution id, etc.) to
+        # build its dashboard widgets. See infra/lib/monitoring-stack.ts.
+        run: |
+          npx cdk deploy \
+            "BadgeIt-Monitoring-${ENVIRONMENT}" \
+            --exclusively \
+            --context environment="$ENVIRONMENT" \
+            --context region="$REGION" \
+            --context account="${{ vars.AWS_ACCOUNT_ID }}" \
+            --require-approval never
 
       - name: Summary
         working-directory: infra

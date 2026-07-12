@@ -45,6 +45,7 @@ export interface AuthSession {
 
 const SESSION_KEY = 'badgeit-auth-session'
 const CHALLENGE_SESSION_KEY = 'badgeit-challenge-session'
+const AUTH_MODE_KEY = 'badgeit-auth-mode'
 
 /**
  * How long before actual expiry we proactively refresh, to avoid a request
@@ -53,19 +54,40 @@ const CHALLENGE_SESSION_KEY = 'badgeit-challenge-session'
 const REFRESH_SKEW_MS = 60_000
 
 /**
- * Initiates the USER_AUTH flow with email OTP.
- * Cognito sends a one-time code to the user's email automatically.
- * Returns the session string needed for RespondToAuthChallenge.
- *
- * Because the User Pool Client has `preventUserExistenceErrors` enabled
- * (to prevent user enumeration), Cognito never throws UserNotFoundException
- * from InitiateAuth — it returns a fake challenge instead. So we always
- * attempt sign-up first (idempotent, UsernameExistsException is swallowed)
- * to ensure the user exists and is confirmed before initiating auth.
+ * Which code-entry path the "verify" step should take next. Brand-new
+ * accounts aren't confirmed/verified until they prove they received the
+ * SignUp confirmation code (ConfirmSignUp); existing accounts go straight
+ * to an EMAIL_OTP sign-in challenge. The two codes come from different
+ * Cognito mechanisms and have different lengths (6 digits vs 8), so callers
+ * need to know which one they're collecting.
  */
-export async function initiateAuth(email: string): Promise<string> {
-  // Ensure the user exists (no-op if they already do).
-  await signUpUser(email)
+export type AuthMode = 'new' | 'existing'
+
+/**
+ * Starts authentication for the given email and returns which code-entry
+ * path to follow next.
+ *
+ * We always attempt sign-up first. If the account doesn't exist yet, this
+ * creates it (UNCONFIRMED) and Cognito emails a SignUp confirmation code —
+ * the account only becomes CONFIRMED/verified once that code is submitted
+ * via ConfirmSignUp in respondToChallenge(). If the account already exists
+ * (UsernameExistsException, swallowed), we start a normal EMAIL_OTP
+ * sign-in challenge instead.
+ *
+ * There is deliberately no server-side trigger that auto-confirms/verifies
+ * new users at sign-up time — that would let anyone mark an arbitrary,
+ * unowned email address as "verified" just by calling SignUp.
+ */
+export async function initiateAuth(email: string): Promise<AuthMode> {
+  const isNewUser = await signUpUser(email)
+
+  if (isNewUser) {
+    sessionStorage.setItem(AUTH_MODE_KEY, 'new')
+    sessionStorage.removeItem(CHALLENGE_SESSION_KEY)
+    return 'new'
+  }
+
+  sessionStorage.setItem(AUTH_MODE_KEY, 'existing')
 
   const { client, sdk } = await getClient()
   const response = await client.send(new sdk.InitiateAuthCommand({
@@ -84,43 +106,82 @@ export async function initiateAuth(email: string): Promise<string> {
 
   // Store session temporarily for the challenge response
   sessionStorage.setItem(CHALLENGE_SESSION_KEY, session)
-  return session
+  return 'existing'
 }
 
 /**
- * Responds to the EMAIL_OTP challenge with the verification code.
+ * Completes authentication with the code the user was emailed. Branches on
+ * the mode recorded by initiateAuth():
+ * - 'new': confirms the SignUp code (ConfirmSignUp), which both verifies
+ *   the email and moves the user to CONFIRMED, then immediately exchanges
+ *   the Session that ConfirmSignUp returns for tokens via InitiateAuth —
+ *   Cognito's documented way to sign a user in right after their first
+ *   confirmation, with no second code required.
+ * - 'existing': responds to the EMAIL_OTP sign-in challenge as before.
+ *
  * On success, stores the auth session in localStorage.
  */
 export async function respondToChallenge(
   email: string,
   code: string,
 ): Promise<AuthSession> {
-  const challengeSession = sessionStorage.getItem(CHALLENGE_SESSION_KEY)
-  if (!challengeSession) {
-    throw new Error('No active challenge session')
+  const mode = sessionStorage.getItem(AUTH_MODE_KEY)
+  const { client, sdk } = await getClient()
+
+  let authResult: AuthenticationResultType | undefined
+
+  if (mode === 'new') {
+    const confirmResponse = await client.send(new sdk.ConfirmSignUpCommand({
+      ClientId: authConfig.clientId,
+      Username: email,
+      ConfirmationCode: code,
+    }))
+
+    const confirmSession = confirmResponse.Session
+    if (!confirmSession) {
+      throw new Error('No session returned from ConfirmSignUp')
+    }
+
+    const signInResponse = await client.send(new sdk.InitiateAuthCommand({
+      AuthFlow: 'USER_AUTH',
+      ClientId: authConfig.clientId,
+      Session: confirmSession,
+      AuthParameters: {
+        USERNAME: email,
+      },
+    }))
+
+    authResult = signInResponse.AuthenticationResult
+  } else {
+    const challengeSession = sessionStorage.getItem(CHALLENGE_SESSION_KEY)
+    if (!challengeSession) {
+      throw new Error('No active challenge session')
+    }
+
+    const response = await client.send(new sdk.RespondToAuthChallengeCommand({
+      ChallengeName: 'EMAIL_OTP',
+      ClientId: authConfig.clientId,
+      ChallengeResponses: {
+        USERNAME: email,
+        EMAIL_OTP_CODE: code,
+      },
+      Session: challengeSession,
+    }),)
+
+    authResult = response.AuthenticationResult
   }
 
-  const { client, sdk } = await getClient()
-  const response = await client.send(new sdk.RespondToAuthChallengeCommand({
-    ChallengeName: 'EMAIL_OTP',
-    ClientId: authConfig.clientId,
-    ChallengeResponses: {
-      USERNAME: email,
-      EMAIL_OTP_CODE: code,
-    },
-    Session: challengeSession,
-  }),)
-
-  if (!response.AuthenticationResult) {
+  if (!authResult) {
     throw new Error('Authentication not complete')
   }
 
-  const session = toAuthSession(response.AuthenticationResult, email)
+  const session = toAuthSession(authResult, email)
 
   // Store in localStorage (persists across tab/browser close) so a signed-in
   // user stays signed in for the life of the refresh token, not just the tab.
   localStorage.setItem(SESSION_KEY, JSON.stringify(session))
   sessionStorage.removeItem(CHALLENGE_SESSION_KEY)
+  sessionStorage.removeItem(AUTH_MODE_KEY)
 
   return session
 }
@@ -217,15 +278,18 @@ export async function refreshSession(): Promise<AuthSession> {
 export function clearSession(): void {
   localStorage.removeItem(SESSION_KEY)
   sessionStorage.removeItem(CHALLENGE_SESSION_KEY)
+  sessionStorage.removeItem(AUTH_MODE_KEY)
 }
 
 /**
- * Signs up a new user with a random password.
- * The password is never used since we authenticate via EMAIL_OTP.
- * The Pre Sign-up Lambda trigger auto-confirms the user and verifies their
- * email, so no separate confirmation step is needed here.
+ * Signs up a new user with a random password. The password is never used
+ * since we authenticate via EMAIL_OTP; it's only required because Cognito
+ * still requires password auth to remain enabled on the pool.
+ *
+ * Returns whether this call actually created a new (UNCONFIRMED) user, so
+ * the caller can pick the right next step.
  */
-async function signUpUser(email: string): Promise<void> {
+async function signUpUser(email: string): Promise<boolean> {
   const randomPassword = crypto.randomUUID() + 'Aa1!'
 
   try {
@@ -241,10 +305,11 @@ async function signUpUser(email: string): Promise<void> {
         },
       ],
     }),)
+    return true
   } catch (error: unknown) {
     // If user already exists, that's fine — we'll just authenticate
     if (error instanceof Error && error.name === 'UsernameExistsException') {
-      return
+      return false
     }
     throw error
   }

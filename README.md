@@ -49,7 +49,7 @@ Requires the `aarch64-unknown-linux-gnu` target and [`cargo-lambda`](https://www
 ```bash
 cd backend
 cargo test
-cargo lambda build --release --arm64 --bin api --bin pre_sign_up
+cargo lambda build --release --arm64 --bin api
 ```
 
 ### Infrastructure

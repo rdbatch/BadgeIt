@@ -1,6 +1,5 @@
 import * as cdk from "aws-cdk-lib";
 import * as cognito from "aws-cdk-lib/aws-cognito";
-import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as ses from "aws-cdk-lib/aws-ses";
 import * as ssm from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
@@ -55,10 +54,14 @@ export interface AuthStackProps extends cdk.StackProps {
  *
  * The USER_AUTH flow allows users to authenticate with just an email code.
  *
- * A Pre Sign-up Lambda trigger auto-confirms new users and marks their email
- * as verified so that email OTP is immediately available on first auth. This
- * is safe because the OTP *itself* proves email ownership — no separate
- * confirmation step is needed.
+ * New users are confirmed the standard Cognito way: `autoVerify: { email:
+ * true }` makes SignUp send a real confirmation code to the address given,
+ * and the account only becomes CONFIRMED/verified once that code is
+ * submitted via ConfirmSignUp (see frontend/src/auth/service.ts). There is
+ * deliberately no Pre Sign-up trigger that force-confirms/verifies users —
+ * that would let anyone mark an arbitrary, unowned email address as
+ * "verified" just by calling SignUp, without ever proving they can receive
+ * mail there.
  */
 export class AuthStack extends cdk.Stack {
   /** The Cognito User Pool */
@@ -83,18 +86,6 @@ export class AuthStack extends cdk.Stack {
     });
 
     const fromAddress = `${props.sesFromAddressLocalPart ?? "noreply"}@${props.sesDomainName}`;
-
-    // Rust Lambda for the Pre Sign-up trigger. Auto-confirms the user and
-    // marks their email as verified so Cognito immediately offers EMAIL_OTP.
-    const preSignUpFn = new lambda.Function(this, "PreSignUpFn", {
-      functionName: `badgeit-pre-sign-up-${environment}`,
-      runtime: lambda.Runtime.PROVIDED_AL2023,
-      architecture: lambda.Architecture.ARM_64,
-      handler: "bootstrap",
-      code: lambda.Code.fromAsset("../backend/target/lambda/pre_sign_up"),
-      timeout: cdk.Duration.seconds(5),
-      memorySize: 128,
-    });
 
     // Cognito User Pool with native passwordless email OTP.
     // Choice-based authentication (email OTP as first factor) requires the
@@ -130,9 +121,6 @@ export class AuthStack extends cdk.Stack {
         sesVerifiedDomain: props.sesDomainName,
       }),
       removalPolicy: cdk.RemovalPolicy.RETAIN,
-      lambdaTriggers: {
-        preSignUp: preSignUpFn,
-      },
     });
 
     // The User Pool must not send email before the domain identity is

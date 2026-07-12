@@ -37,7 +37,3 @@ path = "src/bin/hello.rs"
 [[bin]]
 name = "api"
 path = "src/bin/api.rs"
-
-[[bin]]
-name = "pre_sign_up"
-path = "src/bin/pre_sign_up.rs"

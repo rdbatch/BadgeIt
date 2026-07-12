@@ -10,6 +10,19 @@ import * as path from "path";
 import { dataStackParamPaths } from "./data-stack";
 import { apiStackParamPaths } from "./api-stack";
 
+/**
+ * Builds the predictable SSM parameter namespace for a given environment.
+ * MonitoringStack computes the same path to resolve the CloudFront
+ * distribution ID for its dashboard, without a direct CDK construct
+ * reference to FrontendStack — see the rationale on `apiStackParamPaths`.
+ */
+export function frontendStackParamPaths(environment: string) {
+  const base = `/badgeit/${environment}/frontend`;
+  return {
+    distributionId: `${base}/distribution-id`,
+  };
+}
+
 export interface FrontendStackProps extends cdk.StackProps {
   /**
    * Deployment environment (e.g. "dev", "staging", "prod"). Used to look up
@@ -40,6 +53,18 @@ export interface FrontendStackProps extends cdk.StackProps {
    * @default - no custom domain, serves on the default CloudFront domain
    */
   readonly certificateArn?: string;
+  /**
+   * ARN of the CLOUDFRONT-scope WAF Web ACL (from WafStack) to associate
+   * with this distribution. Required if this distribution will be
+   * subscribed to a CloudFront flat-rate pricing plan — every tier,
+   * including Free, mandates a Web ACL association. Passed as a direct
+   * construct reference (not via SSM) because WafStack lives in us-east-1
+   * while this stack can deploy to any region; see `crossRegionReferences`
+   * in app.ts.
+   *
+   * @default - no Web ACL associated
+   */
+  readonly webAclArn?: string;
 }
 
 /**
@@ -188,6 +213,7 @@ export class FrontendStack extends cdk.Stack {
       // distribution then serves only on its default *.cloudfront.net domain.
       domainNames: props.domainNames,
       certificate,
+      webAclId: props.webAclArn,
       defaultBehavior: {
         origin: origins.S3BucketOrigin.withOriginAccessControl(siteBucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
@@ -237,13 +263,14 @@ export class FrontendStack extends cdk.Stack {
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
           cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
         },
-        // config.json is environment-specific runtime config, written after
-        // build — must never be cached so config changes take effect immediately.
-        "/config.json": {
-          origin: origins.S3BucketOrigin.withOriginAccessControl(siteBucket),
-          viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-          cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
-        },
+        // config.json deliberately has no dedicated behavior here (stays
+        // under the CloudFront flat-rate Free tier's 5-behavior cap, which
+        // counts the default behavior) — it falls through to the default
+        // S3 behavior instead. Still effectively no-cache: the S3 object
+        // carries a Cache-Control: no-cache, must-revalidate header (set in
+        // the no-cache BucketDeployment below), and every deploy fires an
+        // explicit CloudFront invalidation for this exact path (see
+        // `distributionPaths` below).
       },
       defaultRootObject: "index.html",
       // SPA routing: redirect 403/404 to /index.html
@@ -264,6 +291,20 @@ export class FrontendStack extends cdk.Stack {
     });
 
     this.distributionDomainName = distribution.distributionDomainName;
+
+    // Unlocks CloudFront's "additional metrics" (CacheHitRate, OriginLatency,
+    // and per-status-code error rates) at 1-minute resolution in CloudWatch.
+    // Without this subscription, only the basic Requests/BytesDownloaded/
+    // BytesUploaded/error-rate metrics are published. Small added cost per
+    // distribution — see https://aws.amazon.com/cloudfront/pricing/.
+    new cloudfront.CfnMonitoringSubscription(this, "MonitoringSubscription", {
+      distributionId: distribution.distributionId,
+      monitoringSubscription: {
+        realtimeMetricsSubscriptionConfig: {
+          realtimeMetricsSubscriptionStatus: "Enabled",
+        },
+      },
+    });
 
     // Note: the bucket policy granting CloudFront (via OAC) read access to
     // the image bucket lives in DataStack, not here — see the comment on
@@ -302,6 +343,16 @@ export class FrontendStack extends cdk.Stack {
         s3deploy.CacheControl.mustRevalidate(),
       ],
       prune: false,
+    });
+
+    // Publish the distribution ID to SSM instead of a CloudFormation stack
+    // export — see `frontendStackParamPaths`. MonitoringStack resolves this
+    // to build its CloudFront dashboard widgets without a direct CDK
+    // construct reference (and the `Fn::ImportValue` hard dependency that
+    // comes with one) on this stack.
+    new ssm.StringParameter(this, "DistributionIdParam", {
+      parameterName: frontendStackParamPaths(props.environment).distributionId,
+      stringValue: distribution.distributionId,
     });
 
     // Outputs retained for human visibility (console/CLI) only — no

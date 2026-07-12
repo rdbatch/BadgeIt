@@ -8,4 +8,4 @@ export {
   refreshSession,
   isSessionExpiring,
 } from './service'
-export type { AuthSession } from './service'
+export type { AuthSession, AuthMode } from './service'

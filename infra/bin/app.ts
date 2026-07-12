@@ -5,6 +5,8 @@ import { ApiStack } from "../lib/api-stack";
 import { AuthStack } from "../lib/auth-stack";
 import { DataStack } from "../lib/data-stack";
 import { FrontendStack } from "../lib/frontend-stack";
+import { MonitoringStack } from "../lib/monitoring-stack";
+import { WafStack } from "../lib/waf-stack";
 
 const app = new cdk.App();
 
@@ -81,9 +83,23 @@ const apiStack = new ApiStack(app, `BadgeIt-Api-${environment}`, {
 apiStack.addDependency(dataStack);
 apiStack.addDependency(authStack);
 
+// CLOUDFRONT-scope WAF Web ACLs can only be created via the us-east-1 API
+// endpoint, regardless of the app's `--context region` — pinned here
+// independent of `stackEnv`. `crossRegionReferences` (set on both this
+// stack and FrontendStack below) makes CDK wire up the plumbing needed for
+// FrontendStack to reference `webAcl.attrArn` even when it deploys to a
+// different region.
+const wafStack = new WafStack(app, `BadgeIt-Waf-${environment}`, {
+  tags: commonTags,
+  env: { region: "us-east-1", account: stackEnv.account },
+  crossRegionReferences: true,
+  environment,
+});
+
 const frontendStack = new FrontendStack(app, `BadgeIt-Frontend-${environment}`, {
   tags: commonTags,
   env: stackEnv,
+  crossRegionReferences: true,
   environment,
   // Custom domain — unset until a domain is registered and an ACM
   // certificate (in us-east-1) is provisioned for it. Once ready:
@@ -93,11 +109,26 @@ const frontendStack = new FrontendStack(app, `BadgeIt-Frontend-${environment}`, 
   // domainName may be a comma-separated list (e.g. "badgeit.com,www.badgeit.com").
   domainNames,
   certificateArn: app.node.tryGetContext("certificateArn") as string | undefined,
+  webAclArn: wafStack.webAcl.attrArn,
 });
 // ApiStack's API URL and DataStack's image bucket are resolved via SSM
 // (see apiStackParamPaths / dataStackParamPaths) — no Fn::ImportValue.
-// Dependencies kept for SSM parameter deploy ordering only.
+// Dependencies kept for SSM parameter deploy ordering only. WafStack is a
+// direct construct reference (webAclArn above), so CDK infers that
+// dependency automatically.
 frontendStack.addDependency(apiStack);
 frontendStack.addDependency(dataStack);
+
+const monitoringStack = new MonitoringStack(app, `BadgeIt-Monitoring-${environment}`, {
+  tags: commonTags,
+  env: stackEnv,
+  environment,
+});
+// MonitoringStack's dashboard combines metrics from ApiStack, DataStack, and
+// FrontendStack, all resolved via SSM (see MonitoringStack's doc comment) —
+// dependencies kept for SSM parameter deploy ordering only.
+monitoringStack.addDependency(apiStack);
+monitoringStack.addDependency(dataStack);
+monitoringStack.addDependency(frontendStack);
 
 app.synth();

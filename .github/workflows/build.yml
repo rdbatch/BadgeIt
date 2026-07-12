@@ -90,7 +90,7 @@ jobs:
         run: curl -fsSL https://cargo-lambda.info/install.sh | sh
 
       - name: Build Lambda binaries (arm64, release)
-        run: cargo lambda build --release --arm64 --bin api --bin pre_sign_up
+        run: cargo lambda build --release --arm64 --bin api
 
       - name: Upload Lambda binaries
         uses: actions/upload-artifact@v6
@@ -111,9 +111,9 @@ jobs:
         with:
           ref: ${{ github.event.inputs.branch || github.ref }}
 
-      # The CDK stacks reference backend/target/lambda/{api,pre_sign_up} as
-      # Lambda asset directories, so synth/tests need the real release
-      # binaries on disk to stage as assets.
+      # The CDK stacks reference backend/target/lambda/api as a Lambda asset
+      # directory, so synth/tests need the real release binary on disk to
+      # stage as an asset.
       - name: Download Lambda binaries
         uses: actions/download-artifact@v7
         with:

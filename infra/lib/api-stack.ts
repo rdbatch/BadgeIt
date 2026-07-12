@@ -21,6 +21,9 @@ export function apiStackParamPaths(environment: string) {
   const base = `/badgeit/${environment}/api`;
   return {
     apiUrl: `${base}/api-url`,
+    apiId: `${base}/api-id`,
+    functionName: `${base}/function-name`,
+    logGroupName: `${base}/log-group-name`,
   };
 }
 
@@ -235,12 +238,13 @@ export class ApiStack extends cdk.Stack {
     // --- Observability ---
     //
     // Alarms for the failure modes that actually matter at this app's
-    // scale (Lambda errors/latency, API Gateway 5xx, DynamoDB throttling),
-    // plus a dashboard combining those built-in metrics with two Logs
-    // Insights widgets over the structured JSON logs the Lambda emits
-    // (see router::route and store::upsert_profile) — these surface
-    // app-wide usage ("profiles created", "public card views") that has
-    // no equivalent built-in CloudWatch metric.
+    // scale (Lambda errors/latency, API Gateway 5xx, DynamoDB throttling).
+    // The dashboard itself lives in MonitoringStack, not here — it combines
+    // these metrics with FrontendStack's CloudFront metrics, and neither
+    // stack can reference the other directly without a deploy-order cycle
+    // (see MonitoringStack's doc comment). MonitoringStack resolves the
+    // identifiers it needs (function name, log group, API id) via the SSM
+    // params published at the bottom of this constructor.
 
     const lambdaErrors = apiFn.metric("Errors", {
       statistic: "Sum",
@@ -302,57 +306,27 @@ export class ApiStack extends cdk.Stack {
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
     });
 
-    const dashboard = new cloudwatch.Dashboard(this, "Dashboard", {
-      dashboardName: `badgeit-${environment}`,
-    });
-
-    dashboard.addWidgets(
-      new cloudwatch.GraphWidget({
-        title: "Lambda Invocations & Errors",
-        left: [lambdaInvocations, lambdaErrors],
-        width: 12,
-      }),
-      new cloudwatch.GraphWidget({
-        title: "Lambda Duration (p50 / p99)",
-        left: [lambdaDurationP50, lambdaDurationP99],
-        width: 12,
-      }),
-    );
-
-    dashboard.addWidgets(
-      new cloudwatch.GraphWidget({
-        title: "API Gateway Requests / 4xx / 5xx",
-        left: [httpApi.metricCount(), httpApi.metricClientError(), httpApi.metricServerError()],
-        width: 12,
-      }),
-      new cloudwatch.GraphWidget({
-        title: "DynamoDB Throttled Requests",
-        left: [dynamoThrottledRequests],
-        width: 12,
-      }),
-    );
-
-    dashboard.addWidgets(
-      new cloudwatch.LogQueryWidget({
-        title: "Profiles Created (usage counter)",
-        logGroupNames: [apiFn.logGroup.logGroupName],
-        view: cloudwatch.LogQueryVisualizationType.TABLE,
-        queryLines: ['filter fields.metric = "profile_created"', "stats count() as profiles_created"],
-      }),
-      new cloudwatch.LogQueryWidget({
-        title: "Public Card Views (usage counter)",
-        logGroupNames: [apiFn.logGroup.logGroupName],
-        view: cloudwatch.LogQueryVisualizationType.TABLE,
-        queryLines: ['filter fields.metric = "public_card_view"', "stats count() as card_views"],
-      }),
-    );
-
-    // Publish the API URL to SSM instead of a CloudFormation stack export —
+    // Publish identifiers to SSM instead of CloudFormation stack exports —
     // see `apiStackParamPaths`. Avoids a CloudFormation `Fn::ImportValue`
-    // hard dependency on this stack from FrontendStack.
+    // hard dependency on this stack from FrontendStack/MonitoringStack.
     new ssm.StringParameter(this, "ApiUrlParam", {
       parameterName: apiStackParamPaths(environment).apiUrl,
       stringValue: this.apiUrl,
+    });
+
+    new ssm.StringParameter(this, "ApiIdParam", {
+      parameterName: apiStackParamPaths(environment).apiId,
+      stringValue: httpApi.apiId,
+    });
+
+    new ssm.StringParameter(this, "FunctionNameParam", {
+      parameterName: apiStackParamPaths(environment).functionName,
+      stringValue: apiFn.functionName,
+    });
+
+    new ssm.StringParameter(this, "LogGroupNameParam", {
+      parameterName: apiStackParamPaths(environment).logGroupName,
+      stringValue: apiFn.logGroup.logGroupName,
     });
 
     // Output retained for human visibility (console/CLI) only — no

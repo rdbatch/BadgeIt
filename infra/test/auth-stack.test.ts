@@ -145,22 +145,11 @@ describe("AuthStack", () => {
     });
   });
 
-  describe("Pre Sign-up Trigger", () => {
-    test("creates a Lambda function for auto-confirmation", () => {
-      template.resourceCountIs("AWS::Lambda::Function", 1);
-      template.hasResourceProperties("AWS::Lambda::Function", {
-        FunctionName: "badgeit-pre-sign-up-test",
-        Runtime: "provided.al2023",
-        Architectures: ["arm64"],
-      });
-    });
-
-    test("user pool references the pre-sign-up trigger", () => {
-      template.hasResourceProperties("AWS::Cognito::UserPool", {
-        LambdaConfig: {
-          PreSignUp: Match.anyValue(),
-        },
-      });
-    });
+  test("does not create a Pre Sign-up trigger (new users must confirm via a real emailed code)", () => {
+    template.resourceCountIs("AWS::Lambda::Function", 0);
+    const userPools = template.findResources("AWS::Cognito::UserPool");
+    for (const userPool of Object.values(userPools)) {
+      expect(userPool.Properties.LambdaConfig).toBeUndefined();
+    }
   });
 });

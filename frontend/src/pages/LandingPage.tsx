@@ -1,14 +1,25 @@
 import { useState, useEffect, type FormEvent } from 'react'
 import { useNavigate, Link } from 'react-router'
-import { useAuth, initiateAuth, respondToChallenge } from '../auth'
+import { useAuth, initiateAuth, respondToChallenge, type AuthMode } from '../auth'
 import { themes, themeBgColors } from '../constants/themes'
 import { useColorScheme } from '../hooks/useColorScheme'
 import { ColorSchemeToggle } from '../components/ColorSchemeToggle'
 
 type AuthStep = 'email' | 'verify'
 
+/**
+ * Cognito's SignUp confirmation code (new accounts) and EMAIL_OTP sign-in
+ * code (existing accounts) are different lengths — 6 digits vs. 8 — so the
+ * code input has to adapt to which one was actually sent.
+ */
+const CODE_LENGTH: Record<AuthMode, number> = {
+  new: 6,
+  existing: 8,
+}
+
 export function LandingPage() {
   const [step, setStep] = useState<AuthStep>('email')
+  const [authMode, setAuthMode] = useState<AuthMode>('existing')
   const [email, setEmail] = useState('')
   const [code, setCode] = useState('')
   const [error, setError] = useState('')
@@ -47,7 +58,8 @@ export function LandingPage() {
     setIsLoading(true)
 
     try {
-      await initiateAuth(email.trim().toLowerCase())
+      const mode = await initiateAuth(email.trim().toLowerCase())
+      setAuthMode(mode)
       setStep('verify')
     } catch (err: unknown) {
       const message =
@@ -165,12 +177,11 @@ export function LandingPage() {
                 id="code"
                 type="text"
                 inputMode="numeric"
-                pattern="[0-9]{8}"
-                maxLength={8}
+                pattern={`[0-9]{${CODE_LENGTH[authMode]}}`}
+                maxLength={CODE_LENGTH[authMode]}
                 required
                 value={code}
                 onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-                placeholder="12345678"
                 className={`mt-1 block w-full rounded-lg border border-current/20 bg-transparent px-4 py-3 text-center text-2xl tracking-widest placeholder-current/40 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none ${activeTheme.text}`}
                 disabled={isLoading}
                 autoFocus
@@ -185,7 +196,7 @@ export function LandingPage() {
 
             <button
               type="submit"
-              disabled={isLoading || code.length !== 8}
+              disabled={isLoading || code.length !== CODE_LENGTH[authMode]}
               className="w-full rounded-lg bg-blue-600 px-4 py-3 font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isLoading ? 'Verifying...' : 'Verify'}
