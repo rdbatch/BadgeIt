@@ -232,6 +232,7 @@ export function CardView({ profile, profileId }: CardViewProps) {
           onClose={() => setShowQRModal(false)}
           imageUrl={profile.imageUrl}
           showPhotoToggle={false}
+          slug={profile.slug}
         />
       )}
 

@@ -90,6 +90,28 @@ describe('Cognito handlers', () => {
     const body = await res?.json()
     expect(body.UserConfirmed).toBe(true)
   })
+
+  it('completes the new-user flow: ConfirmSignUp then a Session-carrying InitiateAuth signs straight in', async () => {
+    const confirmRes = await handleMockRequest(
+      cognitoRequest('ConfirmSignUp', {
+        Username: 'anyone@example.com',
+        ConfirmationCode: '12345678',
+      }),
+    )
+    const confirmBody = await confirmRes?.json()
+    expect(confirmBody.Session).toBeTruthy()
+
+    const signInRes = await handleMockRequest(
+      cognitoRequest('InitiateAuth', {
+        AuthFlow: 'USER_AUTH',
+        Session: confirmBody.Session,
+        AuthParameters: { USERNAME: 'anyone@example.com' },
+      }),
+    )
+    const signInBody = await signInRes?.json()
+    expect(signInBody.ChallengeName).toBeUndefined()
+    expect(signInBody.AuthenticationResult.IdToken).toBe(MOCK_ID_TOKEN)
+  })
 })
 
 describe('profile API handlers', () => {

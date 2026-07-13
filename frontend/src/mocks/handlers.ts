@@ -121,22 +121,35 @@ const authenticationResult = {
 
 /**
  * Answers the Cognito calls made by src/auth/service.ts. Any email signs
- * up, and any verification code passes the OTP challenge.
+ * up, and any verification code passes the OTP/confirmation challenge.
  */
 async function handleCognito(request: Request): Promise<Response> {
   const target = request.headers.get('x-amz-target') ?? ''
   const body = (await request.json().catch(() => ({}))) as {
     AuthFlow?: string
+    Session?: string
   }
 
   if (target.endsWith('.SignUp')) {
     return cognitoJson({ UserConfirmed: true, UserSub: 'mock-user-sub' })
+  }
+  if (target.endsWith('.ConfirmSignUp')) {
+    // service.ts's 'new' mode (see AuthMode) immediately follows this with
+    // an InitiateAuth carrying this Session, expecting a completed sign-in
+    // rather than another challenge — matched by the `body.Session` branch
+    // below.
+    return cognitoJson({ Session: 'mock-confirm-session' })
   }
   if (target.endsWith('.InitiateAuth')) {
     if (body.AuthFlow === 'REFRESH_TOKEN_AUTH') {
       // Like real Cognito, a refresh does not return a new RefreshToken.
       const { RefreshToken: _omitted, ...rest } = authenticationResult
       return cognitoJson({ AuthenticationResult: rest })
+    }
+    if (body.Session) {
+      // Sign-in immediately following ConfirmSignUp ('new' mode) — Cognito
+      // completes this in one step, no further challenge.
+      return cognitoJson({ AuthenticationResult: authenticationResult })
     }
     return cognitoJson({
       ChallengeName: 'EMAIL_OTP',

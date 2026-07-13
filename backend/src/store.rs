@@ -413,9 +413,10 @@ impl ProfileStore {
         // been uploaded yet) so a shared link unfurls with something better
         // than nothing right away. On every later edit, just preserve the
         // existing key — this item write is a full overwrite, and the OG
-        // image itself only changes when the photo does (see upload_image).
+        // image itself only changes when the photo or slug do (see
+        // upload_image and set_slug).
         if existing.is_none() {
-            let og_bytes = og_image::generate(&profile_id, &self.site_url, None)?;
+            let og_bytes = og_image::generate(&profile_id, &self.site_url, None, None)?;
             let og_key = format!("images/{profile_id}/{}-og", generate_image_version());
             self.s3
                 .put_object()
@@ -612,6 +613,16 @@ impl ProfileStore {
             {
                 tracing::warn!(profile_id = %profile_id, old_slug = %old_slug, error = %e, "Failed to release old slug pointer");
             }
+        }
+
+        // The OG share image's QR caption bakes in the slug (see
+        // `og_image::draw_qr_label`), so it needs a forced refresh whenever
+        // the slug changes — otherwise a shared card link would keep
+        // unfurling with a stale caption until something else (e.g. a photo
+        // change) happened to regenerate it. Best-effort: a transient
+        // failure here shouldn't fail the slug save itself.
+        if let Err(e) = self.regenerate_og_image(&profile_id, true).await {
+            tracing::warn!(profile_id = %profile_id, error = %e, "Failed to regenerate OG image after slug change");
         }
 
         self.get_profile_full(&profile_id).await
@@ -958,6 +969,30 @@ impl ProfileStore {
             .and_then(|item| get_string(item, "og_image_key")))
     }
 
+    /// Looks up the raw `slug` attribute currently stored for a profile, if
+    /// any — mirrors `get_image_key` above, so callers that only need the
+    /// slug (e.g. to caption a freshly-generated OG image) don't have to
+    /// fetch the full profile.
+    async fn get_slug(&self, profile_id: &str) -> Result<Option<String>, AppError> {
+        let pk = format!("PROFILE#{profile_id}");
+
+        let result = self
+            .dynamo
+            .get_item()
+            .table_name(&self.table_name)
+            .key("pk", AttributeValue::S(pk))
+            .key("sk", AttributeValue::S(PROFILE_SK.to_string()))
+            .projection_expression("slug")
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(format!("DynamoDB get failed: {e}")))?;
+
+        Ok(result
+            .item
+            .as_ref()
+            .and_then(|item| get_string(item, "slug")))
+    }
+
     /// Enumerates every profile's ID in the table via a full Scan (filtered
     /// to profile items — the table also holds LINK#/POINTER/SLUG/
     /// CONNECTION# items sharing the same partitions). Used only by the
@@ -1030,7 +1065,7 @@ impl ProfileStore {
             .table_name(&self.table_name)
             .key("pk", AttributeValue::S(pk.clone()))
             .key("sk", AttributeValue::S(PROFILE_SK.to_string()))
-            .projection_expression("image_key, og_image_key")
+            .projection_expression("image_key, og_image_key, slug")
             .send()
             .await
             .map_err(|e| AppError::Internal(format!("DynamoDB get failed: {e}")))?;
@@ -1038,6 +1073,7 @@ impl ProfileStore {
         let item = result.item.ok_or(AppError::NotFound)?;
         let image_key = get_string(&item, "image_key");
         let old_og_image_key = get_string(&item, "og_image_key");
+        let slug = get_string(&item, "slug");
 
         if old_og_image_key.is_some() && !force {
             return Ok(false);
@@ -1064,7 +1100,12 @@ impl ProfileStore {
             None => None,
         };
 
-        let og_bytes = og_image::generate(profile_id, &self.site_url, photo_bytes.as_deref())?;
+        let og_bytes = og_image::generate(
+            profile_id,
+            &self.site_url,
+            slug.as_deref(),
+            photo_bytes.as_deref(),
+        )?;
         let new_og_key = format!("images/{profile_id}/{}-og", generate_image_version());
 
         self.s3
@@ -1128,6 +1169,7 @@ impl ProfileStore {
         let profile_id = self.get_or_create_profile_id_for_email(email).await?;
         let old_image_key = self.get_image_key(&profile_id).await?;
         let old_og_image_key = self.get_og_image_key(&profile_id).await?;
+        let slug = self.get_slug(&profile_id).await?;
         let image_key = format!("images/{profile_id}/{}", generate_image_version());
         let og_image_key = format!("{image_key}-og");
 
@@ -1173,7 +1215,12 @@ impl ProfileStore {
         // Regenerate the composite OG share image with the new photo, using
         // the same {version}-og key convention as the placeholder generated
         // at profile creation (see upsert_profile).
-        let og_bytes = og_image::generate(&profile_id, &self.site_url, Some(image_data))?;
+        let og_bytes = og_image::generate(
+            &profile_id,
+            &self.site_url,
+            slug.as_deref(),
+            Some(image_data),
+        )?;
         self.s3
             .put_object()
             .bucket(&self.bucket_name)

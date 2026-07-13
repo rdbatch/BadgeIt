@@ -1,9 +1,11 @@
 //! Generates the composite Open Graph share image for a profile: the
 //! BadgeIt logo + wordmark in the top-left corner, a QR code linking to the
-//! public card, and the user's profile photo (or a generic placeholder
-//! avatar, if none has been uploaded yet) — see `store::upsert_profile` and
-//! `store::upload_image`, which call `generate` and persist the result to
-//! S3 as `{image_key}-og`. Used by `og::render_og_html` as the `og:image`.
+//! public card (with a small caption below it showing the app's domain, or
+//! the profile's full vanity URL if it has a custom slug), and the user's
+//! profile photo (or a generic placeholder avatar, if none has been
+//! uploaded yet) — see `store::upsert_profile` and `store::upload_image`,
+//! which call `generate` and persist the result to S3 as `{image_key}-og`.
+//! Used by `og::render_og_html` as the `og:image`.
 
 use image::{ImageFormat, Rgba, RgbaImage, imageops::FilterType};
 use imageproc::drawing::{draw_filled_circle_mut, draw_filled_ellipse_mut, draw_text_mut};
@@ -15,28 +17,34 @@ const CANVAS_HEIGHT: u32 = 630;
 const MARGIN: i32 = 48;
 const LOGO_SIZE: u32 = 64;
 const QR_SIZE: u32 = 400;
+const QR_X: i32 = MARGIN;
+const QR_Y: i32 = MARGIN + LOGO_SIZE as i32 + 40;
 const PHOTO_DIAMETER: u32 = 380;
 
 const BRAND_BLUE: Rgba<u8> = Rgba([37, 99, 235, 255]);
 const PLACEHOLDER_GREY: Rgba<u8> = Rgba([209, 213, 219, 255]);
+const QR_LABEL_GREY: Rgba<u8> = Rgba([107, 114, 128, 255]);
 const WHITE: Rgba<u8> = Rgba([255, 255, 255, 255]);
 
 static LOGO_PNG: &[u8] = include_bytes!("../assets/badgeit-logo.png");
 static WORDMARK_FONT: &[u8] = include_bytes!("../assets/fonts/Lato-Bold.ttf");
 
 /// Renders a 1200x630 PNG: logo + "BadgeIt" wordmark (top-left), a QR code
-/// encoding the profile's public URL (below that), and the profile photo as
-/// a circular crop on the right — or a placeholder avatar in that same spot
-/// when `photo_bytes` is `None` (no picture uploaded yet).
+/// encoding the profile's public URL with a small caption below it (below
+/// that), and the profile photo as a circular crop on the right — or a
+/// placeholder avatar in that same spot when `photo_bytes` is `None` (no
+/// picture uploaded yet).
 pub fn generate(
     profile_id: &str,
     site_url: &str,
+    slug: Option<&str>,
     photo_bytes: Option<&[u8]>,
 ) -> Result<Vec<u8>, AppError> {
     let mut canvas = RgbaImage::from_pixel(CANVAS_WIDTH, CANVAS_HEIGHT, WHITE);
 
     draw_logo_and_wordmark(&mut canvas)?;
     draw_qr_code(&mut canvas, profile_id, site_url)?;
+    draw_qr_label(&mut canvas, site_url, slug)?;
 
     let photo_x = (CANVAS_WIDTH as i32) - MARGIN - (PHOTO_DIAMETER as i32);
     let photo_y = ((CANVAS_HEIGHT - PHOTO_DIAMETER) / 2) as i32;
@@ -93,9 +101,40 @@ fn draw_qr_code(canvas: &mut RgbaImage, profile_id: &str, site_url: &str) -> Res
         .build();
     let qr_rgba = image::DynamicImage::ImageLuma8(qr_luma).to_rgba8();
 
-    let qr_x = MARGIN;
-    let qr_y = MARGIN + LOGO_SIZE as i32 + 40;
-    image::imageops::overlay(canvas, &qr_rgba, qr_x.into(), qr_y.into());
+    image::imageops::overlay(canvas, &qr_rgba, QR_X.into(), QR_Y.into());
+    Ok(())
+}
+
+/// Draws a small caption just below the QR code's bottom-left corner —
+/// never overlapping the code's modules or finder patterns, which would
+/// risk breaking scannability. Shows the bare app domain (e.g.
+/// `badgeit.app`), or the profile's full vanity URL (e.g.
+/// `badgeit.app/@rdbatch`) if it has a custom `slug`. Draws nothing if
+/// `site_url` is empty (no domain configured yet — e.g. local/test runs).
+fn draw_qr_label(
+    canvas: &mut RgbaImage,
+    site_url: &str,
+    slug: Option<&str>,
+) -> Result<(), AppError> {
+    if site_url.is_empty() {
+        return Ok(());
+    }
+
+    let domain = site_url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .trim_end_matches('/');
+    let label = match slug {
+        Some(s) if !s.is_empty() => format!("{domain}/@{s}"),
+        _ => domain.to_string(),
+    };
+
+    let font = ab_glyph::FontRef::try_from_slice(WORDMARK_FONT)
+        .map_err(|e| AppError::Internal(format!("Failed to load label font: {e}")))?;
+    let scale = ab_glyph::PxScale::from(20.0);
+    let label_y = QR_Y + QR_SIZE as i32 + 12;
+    draw_text_mut(canvas, QR_LABEL_GREY, QR_X, label_y, scale, &font, &label);
+
     Ok(())
 }
 
@@ -168,7 +207,19 @@ mod tests {
 
     #[test]
     fn generates_a_valid_png_without_a_photo() {
-        let png_bytes = generate("abc123", "https://badgeit.app", None).expect("should generate");
+        let png_bytes =
+            generate("abc123", "https://badgeit.app", None, None).expect("should generate");
+        let img = image::load_from_memory(&png_bytes).expect("should decode as an image");
+        assert_eq!(img.width(), CANVAS_WIDTH);
+        assert_eq!(img.height(), CANVAS_HEIGHT);
+    }
+
+    #[test]
+    fn generates_a_valid_png_with_a_slug() {
+        // The label should switch to the full vanity URL form without
+        // affecting the rest of the composite's layout.
+        let png_bytes = generate("abc123", "https://badgeit.app", Some("rdbatch"), None)
+            .expect("should generate");
         let img = image::load_from_memory(&png_bytes).expect("should decode as an image");
         assert_eq!(img.width(), CANVAS_WIDTH);
         assert_eq!(img.height(), CANVAS_HEIGHT);
@@ -190,7 +241,7 @@ mod tests {
             )
             .unwrap();
 
-        let png_bytes = generate("abc123", "https://badgeit.app", Some(&sample_bytes))
+        let png_bytes = generate("abc123", "https://badgeit.app", None, Some(&sample_bytes))
             .expect("should generate");
         let img = image::load_from_memory(&png_bytes).expect("should decode as an image");
         assert_eq!(img.width(), CANVAS_WIDTH);
@@ -201,7 +252,7 @@ mod tests {
     fn works_without_a_site_url() {
         // Generation shouldn't depend on a domain being configured yet —
         // the QR code just encodes a relative path in that case.
-        let png_bytes = generate("abc123", "", None).expect("should generate");
+        let png_bytes = generate("abc123", "", None, None).expect("should generate");
         assert!(!png_bytes.is_empty());
     }
 

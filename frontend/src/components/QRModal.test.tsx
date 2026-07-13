@@ -46,6 +46,20 @@ describe('QRModal', () => {
     })
   })
 
+  describe('QR caption', () => {
+    it('shows the bare app domain when there is no custom slug', () => {
+      render(<QRModal {...defaultProps} />)
+      expect(screen.getByTestId('qr-label')).toHaveTextContent(window.location.host)
+    })
+
+    it('shows the full vanity URL when a custom slug is set', () => {
+      render(<QRModal {...defaultProps} slug="rdbatch" />)
+      expect(screen.getByTestId('qr-label')).toHaveTextContent(
+        `${window.location.host}/@rdbatch`,
+      )
+    })
+  })
+
   describe('close behavior', () => {
     it('calls onClose when close button is clicked', async () => {
       const user = userEvent.setup()
@@ -185,7 +199,11 @@ describe('QRModal', () => {
       const mockToBlob = vi.fn()
       const mockCtx = {
         fillStyle: '',
+        font: '',
+        textAlign: '',
+        textBaseline: '',
         fillRect: vi.fn(),
+        fillText: vi.fn(),
         drawImage: vi.fn(),
         beginPath: vi.fn(),
         arc: vi.fn(),
@@ -218,9 +236,10 @@ describe('QRModal', () => {
       expect(imageInstances.length).toBeGreaterThan(0)
       imageInstances[0].onload?.()
 
-      // Canvas should have been drawn to
+      // Canvas should have been drawn to, including the domain/slug caption
       expect(mockCtx.fillRect).toHaveBeenCalled()
       expect(mockCtx.drawImage).toHaveBeenCalled()
+      expect(mockCtx.fillText).toHaveBeenCalled()
       expect(mockToBlob).toHaveBeenCalled()
 
       vi.unstubAllGlobals()
@@ -235,7 +254,11 @@ describe('QRModal', () => {
       const mockToBlob = vi.fn()
       const mockCtx = {
         fillStyle: '',
+        font: '',
+        textAlign: '',
+        textBaseline: '',
         fillRect: vi.fn(),
+        fillText: vi.fn(),
         drawImage: vi.fn(),
         beginPath: vi.fn(),
         arc: vi.fn(),

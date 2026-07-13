@@ -14,6 +14,8 @@ interface QRModalProps {
    * user-facing toggle.
    */
   showPhotoToggle?: boolean
+  /** Custom vanity slug (without the `@`), if the profile has claimed one. */
+  slug?: string
 }
 
 export function QRModal({
@@ -22,12 +24,18 @@ export function QRModal({
   onClose,
   imageUrl,
   showPhotoToggle = true,
+  slug,
 }: QRModalProps) {
   const modalRef = useRef<HTMLDivElement>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
   const [showPhoto, setShowPhoto] = useState(true)
 
   const profileUrl = `${window.location.origin}/p/${profileId}`
+  // Caption shown below the QR code — the bare app domain, or the profile's
+  // full vanity URL if it has a custom slug. Kept separate from the QR's
+  // encoded value above: the code always still points at the stable
+  // `/p/{id}` URL, this is just a human-readable label.
+  const qrLabel = slug ? `${window.location.host}/@${slug}` : window.location.host
 
   // Focus trap and ESC key handling
   useEffect(() => {
@@ -80,16 +88,20 @@ export function QRModal({
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
+    // Add padding around the QR code, plus extra room below it for the
+    // domain/slug caption drawn by drawLabel.
+    const padding = 32
+    const labelHeight = 24
+
     const qrImg = new Image()
     qrImg.onload = () => {
-      // Add padding around the QR code
-      const padding = 32
       canvas.width = qrImg.width + padding * 2
-      canvas.height = qrImg.height + padding * 2
+      canvas.height = qrImg.height + padding * 2 + labelHeight
 
       ctx.fillStyle = '#ffffff'
       ctx.fillRect(0, 0, canvas.width, canvas.height)
       ctx.drawImage(qrImg, padding, padding)
+      drawLabel(ctx, padding, padding + qrImg.height)
 
       if (showPhoto && imageUrl) {
         // imageUrl is served same-origin (via the frontend's own CloudFront
@@ -97,7 +109,7 @@ export function QRModal({
         // needed here, unlike a genuinely cross-origin image would require.
         const photoImg = new Image()
         photoImg.onload = () => {
-          drawPhotoOnCanvas(ctx, photoImg, canvas)
+          drawPhotoOnCanvas(ctx, photoImg, qrImg.width, qrImg.height)
           exportCanvas(canvas)
         }
         photoImg.onerror = () => {
@@ -111,15 +123,27 @@ export function QRModal({
     }
     qrImg.src = `data:image/svg+xml;base64,${btoa(svgData)}`
 
+    // Draws the domain/slug caption left-aligned just below the QR code,
+    // at the given (x, y) top-left of the caption row — never overlapping
+    // the QR's modules or finder patterns (see QRModal's slug prop doc).
+    function drawLabel(context: CanvasRenderingContext2D, x: number, y: number) {
+      context.fillStyle = '#6b7280'
+      context.font = '13px sans-serif'
+      context.textAlign = 'left'
+      context.textBaseline = 'top'
+      context.fillText(qrLabel, x, y + 6)
+    }
+
     function drawPhotoOnCanvas(
       context: CanvasRenderingContext2D,
       img: HTMLImageElement,
-      c: HTMLCanvasElement,
+      qrWidth: number,
+      qrHeight: number,
     ) {
-      const photoSize = Math.round(c.width * 0.25)
+      const photoSize = Math.round(qrWidth * 0.25)
       const borderWidth = 5
-      const centerX = c.width / 2
-      const centerY = c.height / 2
+      const centerX = padding + qrWidth / 2
+      const centerY = padding + qrHeight / 2
 
       // Draw white circle border
       context.beginPath()
@@ -153,7 +177,7 @@ export function QRModal({
         URL.revokeObjectURL(url)
       }, 'image/png')
     }
-  }, [profileId, showPhoto, imageUrl])
+  }, [profileId, showPhoto, imageUrl, qrLabel])
 
   const overlayClose = useOverlayClose(onClose)
 
@@ -188,22 +212,29 @@ export function QRModal({
         </div>
 
         {/* QR Code */}
-        <div className="relative flex justify-center rounded-lg bg-white p-4">
-          <QRCode
-            id="qr-code-svg"
-            value={profileUrl}
-            size={220}
-            level="H"
-            data-testid="qr-code"
-          />
-          {imageUrl && showPhoto && (
-            <img
-              src={imageUrl}
-              alt="Profile photo overlay"
-              className="absolute top-1/2 left-1/2 h-[55px] w-[55px] -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-white object-cover"
-              data-testid="qr-photo-overlay"
-            />
-          )}
+        <div className="flex justify-center rounded-lg bg-white p-4">
+          <div className="flex w-[220px] flex-col items-start">
+            <div className="relative">
+              <QRCode
+                id="qr-code-svg"
+                value={profileUrl}
+                size={220}
+                level="H"
+                data-testid="qr-code"
+              />
+              {imageUrl && showPhoto && (
+                <img
+                  src={imageUrl}
+                  alt="Profile photo overlay"
+                  className="absolute top-1/2 left-1/2 h-[55px] w-[55px] -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-white object-cover"
+                  data-testid="qr-photo-overlay"
+                />
+              )}
+            </div>
+            <p className="mt-1.5 text-left text-[11px] text-gray-500" data-testid="qr-label">
+              {qrLabel}
+            </p>
+          </div>
         </div>
 
         {/* Photo Toggle */}

@@ -893,6 +893,7 @@ export function EditProfilePage() {
             isOpen={showQRModal}
             onClose={() => setShowQRModal(false)}
             imageUrl={imagePreview ?? undefined}
+            slug={slug}
           />
         )}
 
