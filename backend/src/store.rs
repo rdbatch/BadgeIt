@@ -650,7 +650,9 @@ impl ProfileStore {
                 .key("sk", AttributeValue::S(SLUG_SK.to_string()))
                 .send()
                 .await
-                .map_err(|e| AppError::Internal(format!("DynamoDB slug pointer delete failed: {e}")))?;
+                .map_err(|e| {
+                    AppError::Internal(format!("DynamoDB slug pointer delete failed: {e}"))
+                })?;
         }
 
         // Delete profile image from S3 if one was ever uploaded — its key

@@ -194,9 +194,15 @@ mod tests {
 
     #[test]
     fn builds_slug_url_when_id_is_at_prefixed() {
-        let html = render_og_html(Some(&test_profile()), "@ada-lovelace", "https://badgeit.app");
+        let html = render_og_html(
+            Some(&test_profile()),
+            "@ada-lovelace",
+            "https://badgeit.app",
+        );
         assert!(
-            html.contains(r#"<meta property="og:url" content="https://badgeit.app/@ada-lovelace">"#)
+            html.contains(
+                r#"<meta property="og:url" content="https://badgeit.app/@ada-lovelace">"#
+            )
         );
         assert!(!html.contains("/p/@ada-lovelace"));
     }
