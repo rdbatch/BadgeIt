@@ -131,7 +131,14 @@ export function AboutPage() {
             track of who you talked to, what you discussed, or which event you met them at.
           </p>
           <p>
-            Built by Ryan Batchelder, who spent way more time trying to figure out how to generate a QR code in a popular professional social network app than he'd like to admit.
+            Built by{' '}
+            <a
+              href="https://badgeit.app/@rdbatch"
+              className={`underline underline-offset-2 transition-opacity hover:opacity-80 ${activeTheme.accent}`}
+            >
+              Ryan Batchelder
+            </a>
+            , who spent way more time trying to figure out how to generate a QR code in a popular professional social network app than he'd like to admit.
             With BadgeIt, he hopes no one ever has to worry about that again.
           </p>
         </div>
