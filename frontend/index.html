@@ -4,7 +4,23 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Badgeit</title>
+    <title>BadgeIt</title>
+    <!--
+      Site-wide fallback OG tags. Per-profile tags ("View {name}'s BadgeIt",
+      QR-composite image) are served by the backend's /__og/profile/{id}
+      route, but only to User-Agents the CloudFront crawler function
+      recognizes — anything else (unknown bots, OG debugger sites) lands
+      here, and these generic tags beat unfurling with nothing. No og:image:
+      it requires an absolute URL, and this file is environment-agnostic
+      (same build deploys to dev and prod domains).
+    -->
+    <meta property="og:site_name" content="BadgeIt" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="BadgeIt" />
+    <meta property="og:description" content="Your digital business card — share your info with a QR code." />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="BadgeIt" />
+    <meta name="twitter:description" content="Your digital business card — share your info with a QR code." />
     <script>
       // Paints the right background before React mounts, so a full page
       // load/refresh doesn't flash light before switching to the stored

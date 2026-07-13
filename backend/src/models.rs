@@ -191,6 +191,12 @@ pub struct Profile {
     pub pronouns: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image_url: Option<String>,
+    /// Pre-generated composite share image (logo + QR code + photo/
+    /// placeholder avatar) used as `og:image` — see `og_image::generate`.
+    /// `None` for profiles created before this existed; `og::render_og_html`
+    /// falls back to `image_url` in that case.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub og_image_url: Option<String>,
     pub theme: ThemeId,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_theme: Option<CustomTheme>,
@@ -513,6 +519,7 @@ mod tests {
             location: None,
             pronouns: None,
             image_url: None,
+            og_image_url: None,
             theme: ThemeId::Light,
             custom_theme: None,
             view_count: None,
@@ -543,6 +550,7 @@ mod tests {
             location: None,
             pronouns: None,
             image_url: None,
+            og_image_url: None,
             theme: ThemeId::Light,
             custom_theme: None,
             view_count: None,

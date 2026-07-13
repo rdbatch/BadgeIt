@@ -55,6 +55,7 @@ async fn main() -> Result<(), Error> {
         table_name,
         bucket_name,
         image_base_url,
+        site_url.clone(),
     );
 
     let auth_config = AuthConfig::new(user_pool_id, region, user_pool_client_id);

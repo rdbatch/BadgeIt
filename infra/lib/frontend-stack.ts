@@ -175,17 +175,21 @@ export class FrontendStack extends cdk.Stack {
       protocolPolicy: cloudfront.OriginProtocolPolicy.HTTPS_ONLY,
     });
 
-    // Rewrites /p/{id} requests from known social-media crawler User-Agents
-    // to /__og/profile/{id} (see the additionalBehaviors entry below) —
-    // real visitors are untouched and keep hitting the SPA from S3. This is
-    // what makes shared /p/{id} links unfurl with a name/photo/tagline in
-    // iMessage/Slack/LinkedIn/etc., since those crawlers never execute the
-    // client-rendered SPA's JS.
+    // 302-redirects /p/{id} requests from known social-media crawler
+    // User-Agents to /__og/profile/{id} (see the additionalBehaviors entry
+    // below) — real visitors are untouched and keep hitting the SPA from
+    // S3. This is what makes shared /p/{id} links unfurl with a
+    // name/photo/tagline in iMessage/Slack/LinkedIn/etc., since those
+    // crawlers never execute the client-rendered SPA's JS. It must be a
+    // redirect rather than an in-place URI rewrite — CloudFront doesn't
+    // re-match cache behaviors after a function changes the URI, so a
+    // rewrite would stay on this (S3) behavior and 403; see the comment in
+    // og-crawler-rewrite.js.
     const ogCrawlerRewriteFn = new cloudfront.Function(this, "OgCrawlerRewriteFunction", {
       code: cloudfront.FunctionCode.fromFile({
         filePath: path.join(__dirname, "cloudfront-functions/og-crawler-rewrite.js"),
       }),
-      comment: "Rewrite /p/{id} to /__og/profile/{id} for known crawler User-Agents",
+      comment: "Redirect /p/{id} to /__og/profile/{id} for known crawler User-Agents",
     });
 
     // Origin Access Control for the (cross-stack) profile-image bucket.
@@ -237,7 +241,7 @@ export class FrontendStack extends cdk.Stack {
           originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
         },
         // Crawler-facing OpenGraph HTML — reached only via the viewer-request
-        // rewrite above, never called by the SPA itself.
+        // redirect above, never called by the SPA itself.
         "/__og/*": {
           origin: apiOrigin,
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,

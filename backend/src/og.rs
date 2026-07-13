@@ -4,7 +4,7 @@
 //! photo, or preview — social-media crawlers don't execute JavaScript.
 //!
 //! This is served only to known crawler User-Agents (see the CloudFront
-//! Function that rewrites their requests to `/__og/profile/{id}`); real
+//! Function that redirects their requests to `/__og/profile/{id}`); real
 //! visitors always get the actual SPA. It has no interactivity, so it
 //! doesn't need to match the SPA's styling or behavior — just correct tags.
 
@@ -56,14 +56,19 @@ pub fn render_og_html(profile: Option<&Profile>, id_or_slug: &str, site_url: &st
     let (title, description, image_url) = match profile {
         Some(p) => {
             let name = p.display_name.as_deref().unwrap_or("Someone");
-            let title = format!("{name} - BadgeIt");
+            let title = format!("View {name}'s BadgeIt");
             let description = p
                 .tagline
                 .clone()
                 .unwrap_or_else(|| "Check out my BadgeIt digital business card.".to_string());
+            // Prefer the pre-generated composite (logo + QR + photo) over
+            // the bare uploaded photo — falls back to the raw photo for
+            // profiles created before the composite existed (no
+            // `og_image_url` yet), rather than losing `og:image` entirely.
             let image_url = p
-                .image_url
+                .og_image_url
                 .as_ref()
+                .or(p.image_url.as_ref())
                 .map(|url| {
                     if url.starts_with("http://") || url.starts_with("https://") {
                         url.clone()
@@ -140,6 +145,7 @@ mod tests {
             location: None,
             pronouns: None,
             image_url: Some("/images/abc123".to_string()),
+            og_image_url: None,
             theme: ThemeId::Light,
             custom_theme: None,
             view_count: None,
@@ -161,11 +167,15 @@ mod tests {
     #[test]
     fn renders_title_and_description_from_profile() {
         let html = render_og_html(Some(&test_profile()), "abc123", "https://badgeit.app");
-        assert!(html.contains(r#"<meta property="og:title" content="Ada Lovelace - BadgeIt">"#));
+        assert!(
+            html.contains(
+                r#"<meta property="og:title" content="View Ada Lovelace&#39;s BadgeIt">"#
+            )
+        );
         assert!(
             html.contains(r#"<meta property="og:description" content="Countess of Computing">"#)
         );
-        assert!(html.contains("<title>Ada Lovelace - BadgeIt</title>"));
+        assert!(html.contains("<title>View Ada Lovelace&#39;s BadgeIt</title>"));
     }
 
     #[test]
@@ -226,12 +236,38 @@ mod tests {
     }
 
     #[test]
+    fn prefers_composite_og_image_over_raw_photo() {
+        let mut profile = test_profile();
+        profile.image_url = Some("/images/abc123/v1".to_string());
+        profile.og_image_url = Some("/images/abc123/v1-og".to_string());
+        let html = render_og_html(Some(&profile), "abc123", "https://badgeit.app");
+        assert!(html.contains(
+            r#"<meta property="og:image" content="https://badgeit.app/images/abc123/v1-og">"#
+        ));
+    }
+
+    #[test]
+    fn falls_back_to_raw_photo_when_no_composite_og_image_exists() {
+        // Profiles created before the composite image existed have
+        // `og_image_url: None` — `og:image` must still use the raw photo
+        // rather than disappearing entirely.
+        let mut profile = test_profile();
+        profile.og_image_url = None;
+        let html = render_og_html(Some(&profile), "abc123", "https://badgeit.app");
+        assert!(
+            html.contains(
+                r#"<meta property="og:image" content="https://badgeit.app/images/abc123">"#
+            )
+        );
+    }
+
+    #[test]
     fn falls_back_to_defaults_when_name_and_tagline_are_absent() {
         let mut profile = test_profile();
         profile.display_name = None;
         profile.tagline = None;
         let html = render_og_html(Some(&profile), "abc123", "https://badgeit.app");
-        assert!(html.contains(r#"content="Someone - BadgeIt""#));
+        assert!(html.contains(r#"content="View Someone&#39;s BadgeIt""#));
         assert!(html.contains("Check out my BadgeIt digital business card."));
     }
 
@@ -267,6 +303,7 @@ mod tests {
             location: Some("London, UK".to_string()),
             pronouns: Some("she/her".to_string()),
             image_url: Some("/images/mockprofile01".to_string()),
+            og_image_url: None,
             theme: ThemeId::Ocean,
             custom_theme: None,
             view_count: Some(42),
@@ -282,7 +319,7 @@ mod tests {
 
         let html = render_og_html(Some(&profile), "mockprofile01", "https://badgeit.app");
         assert!(html.starts_with("<!DOCTYPE html>"));
-        assert!(html.contains("Ada Lovelace - BadgeIt"));
+        assert!(html.contains("View Ada Lovelace&#39;s BadgeIt"));
         assert!(html.contains("https://badgeit.app/p/mockprofile01"));
         assert!(html.contains("https://badgeit.app/images/mockprofile01"));
         // view_count/phone/location/pronouns are edit-page-only data, not

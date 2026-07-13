@@ -442,6 +442,7 @@ mod tests {
             "test-table".to_string(),
             "test-bucket".to_string(),
             "".to_string(),
+            "".to_string(),
         )
     }
 

@@ -8,6 +8,7 @@ use crate::models::{
     Connection, ConnectionCreateRequest, ConnectionUpdateRequest, CustomTheme, Profile,
     ProfileUpdateRequest, SocialLink, SocialPlatform, ThemeId, validate_slug,
 };
+use crate::og_image;
 use crate::profile_id::{generate_connection_id, generate_image_version, generate_profile_id};
 
 const PROFILE_SK: &str = "PROFILE";
@@ -24,6 +25,11 @@ pub struct ProfileStore {
     table_name: String,
     bucket_name: String,
     image_base_url: String,
+    /// The app's public origin (e.g. `https://badgeit.app`), empty until a
+    /// custom domain is configured. Used only to bake an absolute profile
+    /// URL into the QR code generated for `og_image::generate` — generation
+    /// itself doesn't require it (falls back to a relative `/p/{id}`).
+    site_url: String,
 }
 
 impl ProfileStore {
@@ -34,6 +40,7 @@ impl ProfileStore {
         table_name: String,
         bucket_name: String,
         image_base_url: String,
+        site_url: String,
     ) -> Self {
         Self {
             dynamo,
@@ -42,6 +49,7 @@ impl ProfileStore {
             table_name,
             bucket_name,
             image_base_url,
+            site_url,
         }
     }
 
@@ -258,6 +266,9 @@ impl ProfileStore {
         let image_key = get_string(item, "image_key");
         let image_url = image_key.map(|key| format!("{}/{}", self.image_base_url, key));
 
+        let og_image_key = get_string(item, "og_image_key");
+        let og_image_url = og_image_key.map(|key| format!("{}/{}", self.image_base_url, key));
+
         let theme_str = get_string(item, "theme").unwrap_or_else(|| "light".to_string());
         let theme: ThemeId = serde_json::from_str(&format!("\"{theme_str}\"")).unwrap_or_default();
 
@@ -291,6 +302,7 @@ impl ProfileStore {
             location: get_string(item, "location"),
             pronouns: get_string(item, "pronouns"),
             image_url,
+            og_image_url,
             theme,
             custom_theme,
             view_count,
@@ -394,6 +406,32 @@ impl ProfileStore {
         // invalidations).
         if let Some(existing_key) = self.get_image_key(&profile_id).await? {
             item.insert("image_key".to_string(), AttributeValue::S(existing_key));
+        }
+
+        // On genuine first-time creation, pre-generate the composite OG
+        // share image (logo + QR + placeholder avatar, since no photo has
+        // been uploaded yet) so a shared link unfurls with something better
+        // than nothing right away. On every later edit, just preserve the
+        // existing key — this item write is a full overwrite, and the OG
+        // image itself only changes when the photo does (see upload_image).
+        if existing.is_none() {
+            let og_bytes = og_image::generate(&profile_id, &self.site_url, None)?;
+            let og_key = format!("images/{profile_id}/{}-og", generate_image_version());
+            self.s3
+                .put_object()
+                .bucket(&self.bucket_name)
+                .key(&og_key)
+                .body(og_bytes.into())
+                .content_type("image/png")
+                .send()
+                .await
+                .map_err(|e| AppError::Internal(format!("S3 OG image upload failed: {e}")))?;
+            item.insert("og_image_key".to_string(), AttributeValue::S(og_key));
+        } else if let Some(existing_og_key) = self.get_og_image_key(&profile_id).await? {
+            item.insert(
+                "og_image_key".to_string(),
+                AttributeValue::S(existing_og_key),
+            );
         }
 
         // Preserve slug if set — it's managed via a separate endpoint
@@ -897,6 +935,29 @@ impl ProfileStore {
             .and_then(|item| get_string(item, "image_key")))
     }
 
+    /// Looks up the raw `og_image_key` attribute currently stored for a
+    /// profile, if any — mirrors `get_image_key` above, for the composite
+    /// OG share image rather than the raw uploaded photo.
+    async fn get_og_image_key(&self, profile_id: &str) -> Result<Option<String>, AppError> {
+        let pk = format!("PROFILE#{profile_id}");
+
+        let result = self
+            .dynamo
+            .get_item()
+            .table_name(&self.table_name)
+            .key("pk", AttributeValue::S(pk))
+            .key("sk", AttributeValue::S(PROFILE_SK.to_string()))
+            .projection_expression("og_image_key")
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(format!("DynamoDB get failed: {e}")))?;
+
+        Ok(result
+            .item
+            .as_ref()
+            .and_then(|item| get_string(item, "og_image_key")))
+    }
+
     /// Upload a profile image to S3.
     ///
     /// The declared `content_type` from the client is never trusted for
@@ -920,7 +981,9 @@ impl ProfileStore {
     ) -> Result<String, AppError> {
         let profile_id = self.get_or_create_profile_id_for_email(email).await?;
         let old_image_key = self.get_image_key(&profile_id).await?;
+        let old_og_image_key = self.get_og_image_key(&profile_id).await?;
         let image_key = format!("images/{profile_id}/{}", generate_image_version());
+        let og_image_key = format!("{image_key}-og");
 
         // Validate size (4MB max)
         const MAX_IMAGE_SIZE: usize = 4 * 1024 * 1024;
@@ -961,22 +1024,37 @@ impl ProfileStore {
             .await
             .map_err(|e| AppError::Internal(format!("S3 upload failed: {e}")))?;
 
-        // Update the profile item with the image key
+        // Regenerate the composite OG share image with the new photo, using
+        // the same {version}-og key convention as the placeholder generated
+        // at profile creation (see upsert_profile).
+        let og_bytes = og_image::generate(&profile_id, &self.site_url, Some(image_data))?;
+        self.s3
+            .put_object()
+            .bucket(&self.bucket_name)
+            .key(&og_image_key)
+            .body(og_bytes.into())
+            .content_type("image/png")
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(format!("S3 OG image upload failed: {e}")))?;
+
+        // Update the profile item with both image keys
         let pk = format!("PROFILE#{profile_id}");
         self.dynamo
             .update_item()
             .table_name(&self.table_name)
             .key("pk", AttributeValue::S(pk))
             .key("sk", AttributeValue::S(PROFILE_SK.to_string()))
-            .update_expression("SET image_key = :ik, updated_at = :ua")
+            .update_expression("SET image_key = :ik, og_image_key = :ok, updated_at = :ua")
             .expression_attribute_values(":ik", AttributeValue::S(image_key.clone()))
+            .expression_attribute_values(":ok", AttributeValue::S(og_image_key.clone()))
             .expression_attribute_values(":ua", AttributeValue::S(chrono_now()))
             .send()
             .await
             .map_err(|e| AppError::Internal(format!("DynamoDB update failed: {e}")))?;
 
-        // Release the old object last, best-effort — the profile item
-        // already points at the new key, so a failure here just leaves a
+        // Release the old objects last, best-effort — the profile item
+        // already points at the new keys, so a failure here just leaves a
         // harmless orphaned object rather than corrupting anything.
         if let Some(old_key) = old_image_key
             && old_key != image_key
@@ -989,6 +1067,18 @@ impl ProfileStore {
                 .await
         {
             tracing::warn!(profile_id = %profile_id, old_key = %old_key, error = %e, "Failed to delete old profile image");
+        }
+        if let Some(old_og_key) = old_og_image_key
+            && old_og_key != og_image_key
+            && let Err(e) = self
+                .s3
+                .delete_object()
+                .bucket(&self.bucket_name)
+                .key(&old_og_key)
+                .send()
+                .await
+        {
+            tracing::warn!(profile_id = %profile_id, old_key = %old_og_key, error = %e, "Failed to delete old OG image");
         }
 
         let image_url = format!("{}/{}", self.image_base_url, image_key);
@@ -1218,6 +1308,7 @@ mod resolve_profile_id_tests {
             aws_sdk_cognitoidentityprovider::Client::from_conf(cognito_config),
             "test-table".to_string(),
             "test-bucket".to_string(),
+            "".to_string(),
             "".to_string(),
         )
     }

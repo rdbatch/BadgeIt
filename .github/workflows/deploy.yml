@@ -112,6 +112,8 @@ jobs:
             --context environment="$ENVIRONMENT" \
             --context region="$REGION" \
             --context account="${{ vars.AWS_ACCOUNT_ID }}" \
+            --context "domainName=${{ vars.DOMAIN_NAME }}" \
+            --context "certificateArn=${{ vars.CERTIFICATE_ARN }}" \
             --require-approval never \
             --outputs-file cdk-outputs.json
 

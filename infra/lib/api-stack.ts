@@ -235,11 +235,11 @@ export class ApiStack extends cdk.Stack {
       integration,
     });
 
-    // Crawler-facing OpenGraph HTML — routed here directly by a CloudFront
-    // Function that rewrites /p/{id} requests from known social-media
-    // crawler User-Agents (see FrontendStack). Not under /api/* since it
-    // returns HTML, not JSON, and is reached via a path rewrite rather than
-    // the app calling it directly.
+    // Crawler-facing OpenGraph HTML — routed here by a CloudFront Function
+    // that 302-redirects /p/{id} requests from known social-media crawler
+    // User-Agents (see FrontendStack). Not under /api/* since it returns
+    // HTML, not JSON, and is reached via that redirect rather than the app
+    // calling it directly.
     httpApi.addRoutes({
       path: "/__og/profile/{id}",
       methods: [apigwv2.HttpMethod.GET],
