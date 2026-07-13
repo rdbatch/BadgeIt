@@ -4,6 +4,7 @@ import { AuthProvider } from './auth'
 import { LandingPage } from './pages/LandingPage'
 import { EditProfilePage } from './pages/EditProfilePage'
 import { PublicCardPage } from './pages/PublicCardPage'
+import { TAGLINES } from './constants/taglines'
 
 const routes = [
   { path: '/', element: <LandingPage /> },
@@ -26,9 +27,7 @@ describe('Router', () => {
   it('renders the landing page at /', () => {
     renderWithRouter('/')
     expect(screen.getByText('BadgeIt')).toBeInTheDocument()
-    expect(
-      screen.getByText('Your lightweight digital business card'),
-    ).toBeInTheDocument()
+    expect(screen.getByText(TAGLINES[0])).toBeInTheDocument()
   })
 
   it('renders email input on landing page', () => {

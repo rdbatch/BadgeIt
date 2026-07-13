@@ -4,6 +4,8 @@ import { useAuth, initiateAuth, respondToChallenge, type AuthMode } from '../aut
 import { themes, themeBgColors } from '../constants/themes'
 import { useColorScheme } from '../hooks/useColorScheme'
 import { ColorSchemeToggle } from '../components/ColorSchemeToggle'
+import { RotatingTagline } from '../components/RotatingTagline'
+import logo from '../assets/logo.svg'
 
 type AuthStep = 'email' | 'verify'
 
@@ -103,10 +105,11 @@ export function LandingPage() {
       <div className="w-full max-w-sm space-y-8">
         {/* Header */}
         <div className="text-center">
-          <h1 className={`text-4xl font-bold ${activeTheme.text}`}>BadgeIt</h1>
-          <p className={`mt-2 text-lg ${activeTheme.textMuted}`}>
-            Your lightweight digital business card
-          </p>
+          <div className="flex items-center justify-center gap-2">
+            <img src={logo} alt="" width={40} height={40} className="h-10 w-10" />
+            <h1 className={`text-4xl font-bold ${activeTheme.text}`}>BadgeIt</h1>
+          </div>
+          <RotatingTagline className={activeTheme.textMuted} />
         </div>
 
         {/* Email Step */}
