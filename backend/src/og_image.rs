@@ -15,7 +15,15 @@ use crate::error::AppError;
 const CANVAS_WIDTH: u32 = 1200;
 const CANVAS_HEIGHT: u32 = 630;
 const MARGIN: i32 = 48;
-const LOGO_SIZE: u32 = 64;
+const LOGO_SIZE: u32 = 84;
+// The embedded logo PNG is a 160x160 canvas with a large baked-in white
+// margin — the actual glyph only occupies roughly (7,7)-(78,78). Resizing
+// the full canvas made the icon look tiny and left a dead gap before the
+// wordmark; crop to the glyph (plus a few px of breathing room) first so it
+// fills LOGO_SIZE edge-to-edge and sits flush against the text.
+const LOGO_CROP_X: u32 = 3;
+const LOGO_CROP_Y: u32 = 3;
+const LOGO_CROP_SIZE: u32 = 80;
 const QR_SIZE: u32 = 400;
 const QR_X: i32 = MARGIN;
 const QR_Y: i32 = MARGIN + LOGO_SIZE as i32 + 40;
@@ -47,7 +55,11 @@ pub fn generate(
     draw_qr_label(&mut canvas, site_url, slug)?;
 
     let photo_x = (CANVAS_WIDTH as i32) - MARGIN - (PHOTO_DIAMETER as i32);
-    let photo_y = ((CANVAS_HEIGHT - PHOTO_DIAMETER) / 2) as i32;
+    // Vertically centered on the QR code rather than the full canvas — the
+    // QR sits lower than canvas-center (it's pushed down by the logo above
+    // it), so canvas-centering the photo left it visibly higher than the QR.
+    let qr_center_y = QR_Y + (QR_SIZE as i32) / 2;
+    let photo_y = qr_center_y - (PHOTO_DIAMETER as i32) / 2;
     let photo_circle = match photo_bytes {
         Some(bytes) => circular_photo(bytes)?,
         None => placeholder_avatar(),
@@ -64,15 +76,16 @@ pub fn generate(
 fn draw_logo_and_wordmark(canvas: &mut RgbaImage) -> Result<(), AppError> {
     let logo = image::load_from_memory(LOGO_PNG)
         .map_err(|e| AppError::Internal(format!("Failed to decode embedded logo: {e}")))?
+        .crop_imm(LOGO_CROP_X, LOGO_CROP_Y, LOGO_CROP_SIZE, LOGO_CROP_SIZE)
         .resize_exact(LOGO_SIZE, LOGO_SIZE, FilterType::Lanczos3)
         .to_rgba8();
     image::imageops::overlay(canvas, &logo, MARGIN.into(), MARGIN.into());
 
     let font = ab_glyph::FontRef::try_from_slice(WORDMARK_FONT)
         .map_err(|e| AppError::Internal(format!("Failed to load wordmark font: {e}")))?;
-    let scale = ab_glyph::PxScale::from(40.0);
-    let text_x = MARGIN + LOGO_SIZE as i32 + 16;
-    let text_y = MARGIN + (LOGO_SIZE as i32 - 40) / 2 - 4;
+    let scale = ab_glyph::PxScale::from(52.0);
+    let text_x = MARGIN + LOGO_SIZE as i32 + 12;
+    let text_y = MARGIN + (LOGO_SIZE as i32 - 52) / 2 - 6;
     draw_text_mut(canvas, BRAND_BLUE, text_x, text_y, scale, &font, "BadgeIt");
 
     Ok(())
@@ -131,8 +144,8 @@ fn draw_qr_label(
 
     let font = ab_glyph::FontRef::try_from_slice(WORDMARK_FONT)
         .map_err(|e| AppError::Internal(format!("Failed to load label font: {e}")))?;
-    let scale = ab_glyph::PxScale::from(20.0);
-    let label_y = QR_Y + QR_SIZE as i32 + 12;
+    let scale = ab_glyph::PxScale::from(32.0);
+    let label_y = QR_Y + QR_SIZE as i32 + 2;
     draw_text_mut(canvas, QR_LABEL_GREY, QR_X, label_y, scale, &font, &label);
 
     Ok(())
