@@ -6,6 +6,8 @@ import * as ssm from "aws-cdk-lib/aws-ssm";
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as logs from "aws-cdk-lib/aws-logs";
+import * as sfn from "aws-cdk-lib/aws-stepfunctions";
+import * as tasks from "aws-cdk-lib/aws-stepfunctions-tasks";
 import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import { Construct } from "constructs";
 import { dataStackParamPaths } from "./data-stack";
@@ -136,6 +138,90 @@ export class ApiStack extends cdk.Stack {
     // Grant Lambda permissions to DynamoDB and S3
     table.grantReadWriteData(apiFn);
     imageBucket.grantReadWrite(apiFn);
+
+    // --- OG image bulk regeneration (manual, admin-only) ---
+    //
+    // Backfills/refreshes every profile's composite OG share image (see
+    // og_image::generate) — e.g. once for profiles that predate the
+    // composite feature, or again after a layout change to it. Not wired
+    // to any schedule or event source; a human starts it on demand via
+    // `aws stepfunctions start-execution` (see the state machine below).
+    // Lives in ApiStack (rather than its own stack) since it just needs
+    // the same table/bucket already resolved here.
+    const ogRegenFnLogGroup = new logs.LogGroup(this, "OgRegenFnLogGroup", {
+      logGroupName: `/aws/lambda/badgeit-og-regen-${environment}`,
+      retention: logs.RetentionDays.TWO_WEEKS,
+    });
+
+    const ogRegenFn = new lambda.Function(this, "OgRegenFn", {
+      functionName: `badgeit-og-regen-${environment}`,
+      runtime: lambda.Runtime.PROVIDED_AL2023,
+      architecture: lambda.Architecture.ARM_64,
+      handler: "bootstrap",
+      code: lambda.Code.fromAsset("../backend/target/lambda/og-regen"),
+      // Higher than the API Lambda: image generation is CPU-bound (more
+      // memory proportionally grants more CPU), and "list" has to Scan the
+      // whole table in one invocation — 5 minutes comfortably covers
+      // realistic profile counts without reaching to a paginated/
+      // self-continuing design prematurely.
+      timeout: cdk.Duration.minutes(5),
+      memorySize: 512,
+      logGroup: ogRegenFnLogGroup,
+      environment: {
+        TABLE_NAME: table.tableName,
+        BUCKET_NAME: imageBucket.bucketName,
+        IMAGE_BASE_URL: "",
+        SITE_URL: props.siteUrl ?? "",
+      },
+    });
+    table.grantReadWriteData(ogRegenFn);
+    imageBucket.grantReadWrite(ogRegenFn);
+
+    const listProfiles = new tasks.LambdaInvoke(this, "ListProfiles", {
+      lambdaFunction: ogRegenFn,
+      payload: sfn.TaskInput.fromObject({ action: "list" }),
+      payloadResponseOnly: true,
+      resultPath: "$.list",
+    });
+
+    const regenerateOne = new tasks.LambdaInvoke(this, "RegenerateOne", {
+      lambdaFunction: ogRegenFn,
+      payload: sfn.TaskInput.fromObject({
+        action: "regenerate",
+        profile_id: sfn.JsonPath.stringAt("$.profile_id"),
+        force: sfn.JsonPath.stringAt("$.force"),
+      }),
+      payloadResponseOnly: true,
+    });
+    // A profile that transiently fails (e.g. an S3/DynamoDB throttle)
+    // shouldn't abort the whole run — retry a couple times before giving
+    // up on just that one item.
+    regenerateOne.addRetry({
+      maxAttempts: 2,
+      interval: cdk.Duration.seconds(2),
+      backoffRate: 2,
+    });
+
+    const regenerateAll = new sfn.Map(this, "RegenerateAll", {
+      itemsPath: "$.list.profile_ids",
+      // Caps concurrent Lambda invocations (and therefore concurrent S3/
+      // DynamoDB calls) rather than firing all profiles at once.
+      maxConcurrency: 20,
+      itemSelector: {
+        "profile_id.$": "$$.Map.Item.Value",
+        "force.$": "$.force",
+      },
+    });
+    regenerateAll.itemProcessor(regenerateOne);
+
+    // Execution input: `{ "force": false }` (default/backfill — skips
+    // profiles that already have a composite) or `{ "force": true }`
+    // (regenerate everyone, e.g. after a layout change).
+    new sfn.StateMachine(this, "OgRegenStateMachine", {
+      stateMachineName: `badgeit-og-regen-${environment}`,
+      definitionBody: sfn.DefinitionBody.fromChainable(listProfiles.next(regenerateAll)),
+      timeout: cdk.Duration.hours(2),
+    });
 
     // HTTP API Gateway
     const integration = new HttpLambdaIntegration("ApiIntegration", apiFn);

@@ -958,6 +958,152 @@ impl ProfileStore {
             .and_then(|item| get_string(item, "og_image_key")))
     }
 
+    /// Enumerates every profile's ID in the table via a full Scan (filtered
+    /// to profile items — the table also holds LINK#/POINTER/SLUG/
+    /// CONNECTION# items sharing the same partitions). Used only by the
+    /// manual OG-image regeneration job (see `bin/og_regen.rs`), an
+    /// infrequent admin operation — not something the API itself ever
+    /// calls, so an unindexed Scan here is fine.
+    pub async fn list_all_profile_ids(&self) -> Result<Vec<String>, AppError> {
+        let mut profile_ids = Vec::new();
+        let mut exclusive_start_key = None;
+
+        loop {
+            let mut request = self
+                .dynamo
+                .scan()
+                .table_name(&self.table_name)
+                .filter_expression("sk = :sk")
+                .expression_attribute_values(":sk", AttributeValue::S(PROFILE_SK.to_string()));
+
+            if let Some(key) = exclusive_start_key {
+                request = request.set_exclusive_start_key(Some(key));
+            }
+
+            let result = request
+                .send()
+                .await
+                .map_err(|e| AppError::Internal(format!("DynamoDB scan failed: {e}")))?;
+
+            for item in result.items() {
+                if let Some(pk) = get_string(item, "pk")
+                    && let Some(profile_id) = pk.strip_prefix("PROFILE#")
+                {
+                    profile_ids.push(profile_id.to_string());
+                }
+            }
+
+            exclusive_start_key = result.last_evaluated_key().cloned();
+            if exclusive_start_key.is_none() {
+                break;
+            }
+        }
+
+        Ok(profile_ids)
+    }
+
+    /// Regenerates a single profile's composite OG share image — used by
+    /// the manual bulk regeneration job (`bin/og_regen.rs`), and safe to
+    /// call per-profile with concurrency from a Step Functions Map state.
+    ///
+    /// Skips (returns `Ok(false)`) if the profile already has a composite
+    /// and `force` is `false` — this is what makes a `force: false` run
+    /// naturally resumable: re-running it after a partial failure only
+    /// picks up profiles that still don't have one. Pass `force: true` to
+    /// regenerate everyone regardless (e.g. after a layout change to
+    /// `og_image::generate`).
+    ///
+    /// Always mints a fresh key (never overwrites one in place) so
+    /// CloudFront's aggressive `/images/*` caching can't keep serving a
+    /// stale composite after a `force` refresh — the old object, if any, is
+    /// deleted best-effort afterward.
+    pub async fn regenerate_og_image(
+        &self,
+        profile_id: &str,
+        force: bool,
+    ) -> Result<bool, AppError> {
+        let pk = format!("PROFILE#{profile_id}");
+
+        let result = self
+            .dynamo
+            .get_item()
+            .table_name(&self.table_name)
+            .key("pk", AttributeValue::S(pk.clone()))
+            .key("sk", AttributeValue::S(PROFILE_SK.to_string()))
+            .projection_expression("image_key, og_image_key")
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(format!("DynamoDB get failed: {e}")))?;
+
+        let item = result.item.ok_or(AppError::NotFound)?;
+        let image_key = get_string(&item, "image_key");
+        let old_og_image_key = get_string(&item, "og_image_key");
+
+        if old_og_image_key.is_some() && !force {
+            return Ok(false);
+        }
+
+        let photo_bytes = match &image_key {
+            Some(key) => {
+                let object = self
+                    .s3
+                    .get_object()
+                    .bucket(&self.bucket_name)
+                    .key(key)
+                    .send()
+                    .await
+                    .map_err(|e| AppError::Internal(format!("S3 get failed: {e}")))?;
+                let bytes = object
+                    .body
+                    .collect()
+                    .await
+                    .map_err(|e| AppError::Internal(format!("Failed to read S3 object: {e}")))?
+                    .into_bytes();
+                Some(bytes.to_vec())
+            }
+            None => None,
+        };
+
+        let og_bytes = og_image::generate(profile_id, &self.site_url, photo_bytes.as_deref())?;
+        let new_og_key = format!("images/{profile_id}/{}-og", generate_image_version());
+
+        self.s3
+            .put_object()
+            .bucket(&self.bucket_name)
+            .key(&new_og_key)
+            .body(og_bytes.into())
+            .content_type("image/png")
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(format!("S3 OG image upload failed: {e}")))?;
+
+        self.dynamo
+            .update_item()
+            .table_name(&self.table_name)
+            .key("pk", AttributeValue::S(pk))
+            .key("sk", AttributeValue::S(PROFILE_SK.to_string()))
+            .update_expression("SET og_image_key = :ok")
+            .expression_attribute_values(":ok", AttributeValue::S(new_og_key.clone()))
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(format!("DynamoDB update failed: {e}")))?;
+
+        if let Some(old_key) = old_og_image_key
+            && old_key != new_og_key
+            && let Err(e) = self
+                .s3
+                .delete_object()
+                .bucket(&self.bucket_name)
+                .key(&old_key)
+                .send()
+                .await
+        {
+            tracing::warn!(profile_id = %profile_id, old_key = %old_key, error = %e, "Failed to delete old OG image during regeneration");
+        }
+
+        Ok(true)
+    }
+
     /// Upload a profile image to S3.
     ///
     /// The declared `content_type` from the client is never trusted for

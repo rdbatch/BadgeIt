@@ -41,3 +41,7 @@ path = "src/bin/hello.rs"
 [[bin]]
 name = "api"
 path = "src/bin/api.rs"
+
+[[bin]]
+name = "og-regen"
+path = "src/bin/og_regen.rs"

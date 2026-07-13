@@ -90,7 +90,7 @@ jobs:
         run: curl -fsSL https://cargo-lambda.info/install.sh | sh
 
       - name: Build Lambda binaries (arm64, release)
-        run: cargo lambda build --release --arm64 --bin api
+        run: cargo lambda build --release --arm64 --bin api --bin og-regen
 
       - name: Upload Lambda binaries
         uses: actions/upload-artifact@v6

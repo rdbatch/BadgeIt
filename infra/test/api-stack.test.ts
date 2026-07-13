@@ -244,6 +244,67 @@ describe("ApiStack", () => {
 
   });
 
+  describe("OG image bulk regeneration", () => {
+    test("creates the og-regen Lambda with ARM64 and provided.al2023 runtime", () => {
+      template.hasResourceProperties("AWS::Lambda::Function", {
+        FunctionName: "badgeit-og-regen-test",
+        Architectures: ["arm64"],
+        Runtime: "provided.al2023",
+        MemorySize: 512,
+        Timeout: 300,
+      });
+    });
+
+    test("creates exactly two Lambda functions (api + og-regen)", () => {
+      template.resourceCountIs("AWS::Lambda::Function", 2);
+    });
+
+    test("creates the OG regen state machine", () => {
+      template.hasResourceProperties("AWS::StepFunctions::StateMachine", {
+        StateMachineName: "badgeit-og-regen-test",
+      });
+    });
+
+    // The rendered DefinitionString is an Fn::Join (it embeds Lambda ARN
+    // references as non-string array entries), not a plain JSON string, so
+    // Match.serializedJson can't parse it directly. Concatenating just the
+    // literal (string) entries reconstructs the definition's own raw JSON
+    // text verbatim (with ARN references dropped), which a plain substring
+    // check can then assert against without hand-parsing the Fn::Join.
+    function definitionText(): string {
+      const machines = template.findResources("AWS::StepFunctions::StateMachine");
+      const [machine] = Object.values(machines) as Array<{
+        Properties: { DefinitionString: { "Fn::Join": [string, unknown[]] } };
+      }>;
+      const parts = machine.Properties.DefinitionString["Fn::Join"][1];
+      return parts.filter((part): part is string => typeof part === "string").join("");
+    }
+
+    function definitionStringContains(...substrings: string[]) {
+      const text = definitionText();
+      for (const substring of substrings) {
+        expect(text).toContain(substring);
+      }
+    }
+
+    test("state machine's Map state caps concurrency at 20 and iterates the listed profile ids", () => {
+      definitionStringContains(
+        '"RegenerateAll"',
+        '"Type":"Map"',
+        '"MaxConcurrency":20',
+        '"ItemsPath":"$.list.profile_ids"',
+      );
+    });
+
+    test("state machine retries a failed regeneration before giving up on that profile", () => {
+      definitionStringContains('"Retry"', '"MaxAttempts":2');
+    });
+
+    test("list step runs before the map over all profiles", () => {
+      definitionStringContains('"StartAt":"ListProfiles"', '"Next":"RegenerateAll"');
+    });
+  });
+
   describe("siteUrl prop", () => {
     test("sets SITE_URL when siteUrl is provided", () => {
       const app = new cdk.App({ context: { environment: "test" } });
