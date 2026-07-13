@@ -980,17 +980,15 @@ impl ProfileStore {
         // harmless orphaned object rather than corrupting anything.
         if let Some(old_key) = old_image_key
             && old_key != image_key
-        {
-            if let Err(e) = self
+            && let Err(e) = self
                 .s3
                 .delete_object()
                 .bucket(&self.bucket_name)
                 .key(&old_key)
                 .send()
                 .await
-            {
-                tracing::warn!(profile_id = %profile_id, old_key = %old_key, error = %e, "Failed to delete old profile image");
-            }
+        {
+            tracing::warn!(profile_id = %profile_id, old_key = %old_key, error = %e, "Failed to delete old profile image");
         }
 
         let image_url = format!("{}/{}", self.image_base_url, image_key);
