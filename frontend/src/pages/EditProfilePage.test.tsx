@@ -306,7 +306,7 @@ describe('EditProfilePage link URL normalization', () => {
       )
       expect(putCall).toBeDefined()
       const body = JSON.parse(putCall![1].body as string)
-      expect(body.links).toEqual([{ platform: 'linkedin', url: 'https://linkedin.com/in/ada' }])
+      expect(body.links).toEqual([{ platform: 'custom', url: 'https://linkedin.com/in/ada' }])
     })
   })
 
@@ -352,7 +352,7 @@ describe('EditProfilePage link URL normalization', () => {
       )
       expect(putCall).toBeDefined()
       const body = JSON.parse(putCall![1].body as string)
-      expect(body.links).toEqual([{ platform: 'linkedin', url: 'http://example.com' }])
+      expect(body.links).toEqual([{ platform: 'custom', url: 'http://example.com' }])
     })
   })
 })
@@ -437,6 +437,182 @@ describe('EditProfilePage location and pronouns', () => {
       expect(body.location).toBe('London, UK')
       expect(body.pronouns).toBe('they/them')
     })
+  })
+})
+
+describe('EditProfilePage custom URL slug', () => {
+  afterEach(() => {
+    localStorage.clear()
+  })
+
+  const baseProfile = {
+    id: 'a1b2c3d4e5f6',
+    email: 'test@example.com',
+    theme: 'light',
+    display_email: true,
+    links: [],
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z',
+  }
+
+  it('populates the slug field from the /me response', async () => {
+    seedSession()
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ ...baseProfile, slug: 'ada-lovelace' }),
+    })
+
+    renderEditPage()
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('ada-lovelace')).toBeInTheDocument()
+    })
+  })
+
+  it('calls PUT /api/profile/slug with the new value when the slug changed', async () => {
+    seedSession()
+
+    globalThis.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (!init || init.method === undefined) {
+        return Promise.resolve({ ok: false, status: 404 })
+      }
+      if (url.includes('/api/profile/slug')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ ...baseProfile, slug: 'ada-lovelace' }),
+        })
+      }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(baseProfile) })
+    })
+
+    renderEditPage()
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Custom URL (optional)')).toBeInTheDocument()
+    })
+
+    fireEvent.change(screen.getByLabelText('Custom URL (optional)'), {
+      target: { value: 'ada-lovelace' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      const slugCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.find(([url]) =>
+        (url as string).includes('/api/profile/slug'),
+      )
+      expect(slugCall).toBeDefined()
+      const body = JSON.parse(slugCall![1].body as string)
+      expect(body.slug).toBe('ada-lovelace')
+    })
+  })
+
+  it('does not call PUT /api/profile/slug when the slug is unchanged', async () => {
+    seedSession()
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ ...baseProfile, slug: 'ada-lovelace' }),
+    })
+
+    renderEditPage()
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('ada-lovelace')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Saved successfully!')).toBeInTheDocument()
+    })
+
+    const slugCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.find(([url]) =>
+      (url as string).includes('/api/profile/slug'),
+    )
+    expect(slugCall).toBeUndefined()
+  })
+
+  it('shows a conflict error when the slug is already taken', async () => {
+    seedSession()
+
+    globalThis.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (!init || init.method === undefined) {
+        return Promise.resolve({ ok: false, status: 404 })
+      }
+      if (url.includes('/api/profile/slug')) {
+        return Promise.resolve({ ok: false, status: 409 })
+      }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(baseProfile) })
+    })
+
+    renderEditPage()
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Custom URL (optional)')).toBeInTheDocument()
+    })
+
+    fireEvent.change(screen.getByLabelText('Custom URL (optional)'), {
+      target: { value: 'ada-lovelace' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Error: That custom URL is already taken')).toBeInTheDocument()
+    })
+
+    const slugInput = screen.getByLabelText('Custom URL (optional)')
+    expect(slugInput).toHaveAttribute('aria-invalid', 'true')
+    expect(slugInput.closest('div')).toHaveClass('border-red-500')
+
+    // Editing the field again clears the highlight.
+    fireEvent.change(slugInput, { target: { value: 'ada-lovelace-2' } })
+    expect(slugInput).toHaveAttribute('aria-invalid', 'false')
+    expect(slugInput.closest('div')).not.toHaveClass('border-red-500')
+  })
+
+  it('populates the slug field again after a page reload following a successful save', async () => {
+    seedSession()
+
+    // Simulates a fresh page load post-save: /me now returns the slug that
+    // was set, and the initial render must show it in the field (this is
+    // the load path, not the save path — regression guard for the backend
+    // bug where an unrelated profile save silently dropped the slug).
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ ...baseProfile, display_name: 'Ada King', slug: 'ada-lovelace' }),
+    })
+
+    renderEditPage()
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Ada King')).toBeInTheDocument()
+    })
+    expect(screen.getByDisplayValue('ada-lovelace')).toBeInTheDocument()
+  })
+
+  it('lowercases input and strips disallowed characters as the user types', async () => {
+    seedSession()
+
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 404 })
+
+    renderEditPage()
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Custom URL (optional)')).toBeInTheDocument()
+    })
+
+    fireEvent.change(screen.getByLabelText('Custom URL (optional)'), {
+      target: { value: 'Ada Lovelace!!' },
+    })
+
+    expect(screen.getByDisplayValue('adalovelace')).toBeInTheDocument()
   })
 })
 

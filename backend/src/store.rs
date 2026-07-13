@@ -6,14 +6,15 @@ use aws_sdk_s3::Client as S3Client;
 use crate::error::AppError;
 use crate::models::{
     Connection, ConnectionCreateRequest, ConnectionUpdateRequest, CustomTheme, Profile,
-    ProfileUpdateRequest, SocialLink, SocialPlatform, ThemeId,
+    ProfileUpdateRequest, SocialLink, SocialPlatform, ThemeId, validate_slug,
 };
-use crate::profile_id::{generate_connection_id, generate_profile_id};
+use crate::profile_id::{generate_connection_id, generate_image_version, generate_profile_id};
 
 const PROFILE_SK: &str = "PROFILE";
 const LINK_PREFIX: &str = "LINK#";
 const EMAIL_POINTER_SK: &str = "POINTER";
 const CONNECTION_PREFIX: &str = "CONNECTION#";
+const SLUG_SK: &str = "SLUG";
 
 /// Data access layer for profile operations.
 pub struct ProfileStore {
@@ -123,6 +124,46 @@ impl ProfileStore {
                     )))
                 }
             }
+        }
+    }
+
+    /// Normalizes a slug for use as a lookup key.
+    fn slug_pk(slug: &str) -> String {
+        format!("SLUG#{}", slug.trim().to_lowercase())
+    }
+
+    /// Looks up the profile ID a custom slug currently points to, if any.
+    async fn get_profile_id_for_slug(&self, slug: &str) -> Result<Option<String>, AppError> {
+        let pk = Self::slug_pk(slug);
+
+        let result = self
+            .dynamo
+            .get_item()
+            .table_name(&self.table_name)
+            .key("pk", AttributeValue::S(pk))
+            .key("sk", AttributeValue::S(SLUG_SK.to_string()))
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(format!("DynamoDB get failed: {e}")))?;
+
+        Ok(result
+            .item
+            .as_ref()
+            .and_then(|item| get_string(item, "profile_id")))
+    }
+
+    /// Resolves a path segment that's either a raw profile ID or an
+    /// `@`-prefixed custom slug into a real profile ID. A leading `@` is the
+    /// caller's (router's) signal that this is a slug, not an ID — plain IDs
+    /// are returned unchanged, so ordinary `/p/{id}` lookups never pay for
+    /// the extra slug-pointer read.
+    pub async fn resolve_profile_id(&self, id_or_slug: &str) -> Result<String, AppError> {
+        match id_or_slug.strip_prefix('@') {
+            Some(slug) => self
+                .get_profile_id_for_slug(slug)
+                .await?
+                .ok_or(AppError::NotFound),
+            None => Ok(id_or_slug.to_string()),
         }
     }
 
@@ -242,6 +283,7 @@ impl ProfileStore {
 
         Ok(Profile {
             id: profile_id.to_string(),
+            slug: get_string(item, "slug"),
             email: Some(email),
             display_name: get_string(item, "display_name"),
             tagline: get_string(item, "tagline"),
@@ -345,12 +387,23 @@ impl ProfileStore {
             );
         }
 
-        // Preserve image_key if it exists
+        // Preserve image_key if it exists — read the actual stored key
+        // rather than re-deriving it, since upload_image no longer uses a
+        // deterministic `images/{profile_id}` shape (each upload gets a
+        // unique key to cache-bust CloudFront without paying for
+        // invalidations).
+        if let Some(existing_key) = self.get_image_key(&profile_id).await? {
+            item.insert("image_key".to_string(), AttributeValue::S(existing_key));
+        }
+
+        // Preserve slug if set — it's managed via a separate endpoint
+        // (`set_slug`) and never part of this request, so it must be
+        // explicitly carried over or this full-item PutItem would silently
+        // wipe it on every profile save.
         if let Some(ref existing_profile) = existing
-            && existing_profile.image_url.is_some()
+            && let Some(ref slug) = existing_profile.slug
         {
-            let image_key = format!("images/{profile_id}");
-            item.insert("image_key".to_string(), AttributeValue::S(image_key));
+            item.insert("slug".to_string(), AttributeValue::S(slug.clone()));
         }
 
         // Write profile item
@@ -400,6 +453,132 @@ impl ProfileStore {
         self.get_profile_full(&profile_id).await
     }
 
+    /// Claims, changes, or clears the authenticated user's custom slug
+    /// (`new_slug = None` clears it). Requires an existing profile — a slug
+    /// can't be claimed before the owner has saved one.
+    ///
+    /// The new slug's `SLUG#` pointer is claimed *before* the profile item
+    /// is updated to reference it, so a profile's `slug` attribute can never
+    /// point at a pointer that doesn't exist. The old pointer (if any) is
+    /// released last, best-effort — a failure there leaves a harmless
+    /// orphaned pointer rather than corrupting the new claim.
+    pub async fn set_slug(&self, email: &str, new_slug: Option<&str>) -> Result<Profile, AppError> {
+        let profile_id = self
+            .get_profile_id_for_email(email)
+            .await?
+            .ok_or(AppError::NotFound)?;
+        let profile = self.get_profile_full(&profile_id).await?;
+        let existing_slug = profile.slug.clone();
+
+        let normalized_new = match new_slug {
+            Some(s) => {
+                validate_slug(s).map_err(AppError::BadRequest)?;
+                Some(s.trim().to_lowercase())
+            }
+            None => None,
+        };
+
+        if normalized_new == existing_slug {
+            return Ok(profile);
+        }
+
+        let pk = format!("PROFILE#{profile_id}");
+
+        match &normalized_new {
+            Some(slug) => {
+                let slug_pk = Self::slug_pk(slug);
+                let mut item = std::collections::HashMap::new();
+                item.insert("pk".to_string(), AttributeValue::S(slug_pk));
+                item.insert("sk".to_string(), AttributeValue::S(SLUG_SK.to_string()));
+                item.insert(
+                    "profile_id".to_string(),
+                    AttributeValue::S(profile_id.clone()),
+                );
+
+                let put_result = self
+                    .dynamo
+                    .put_item()
+                    .table_name(&self.table_name)
+                    .set_item(Some(item))
+                    .condition_expression("attribute_not_exists(pk)")
+                    .send()
+                    .await;
+
+                match put_result {
+                    Ok(_) => {}
+                    Err(e) => {
+                        if !e
+                            .as_service_error()
+                            .is_some_and(|se| se.is_conditional_check_failed_exception())
+                        {
+                            return Err(AppError::Internal(format!(
+                                "DynamoDB slug pointer put failed: {e}"
+                            )));
+                        }
+
+                        // The pointer already exists. If it's ours — e.g.
+                        // the profile's own `slug` attribute fell out of
+                        // sync with its pointer, which could happen from a
+                        // partial failure between the two writes below, or
+                        // from a full-item profile save that didn't carry
+                        // `slug` forward — re-claiming it is a self-healing
+                        // no-op, not a real conflict. Only reject if some
+                        // other profile actually owns it.
+                        let owner = self.get_profile_id_for_slug(slug).await?;
+                        if owner.as_deref() != Some(profile_id.as_str()) {
+                            return Err(AppError::Conflict(
+                                "That custom URL is already taken".to_string(),
+                            ));
+                        }
+                    }
+                }
+
+                self.dynamo
+                    .update_item()
+                    .table_name(&self.table_name)
+                    .key("pk", AttributeValue::S(pk))
+                    .key("sk", AttributeValue::S(PROFILE_SK.to_string()))
+                    .update_expression("SET slug = :s, updated_at = :ua")
+                    .expression_attribute_values(":s", AttributeValue::S(slug.clone()))
+                    .expression_attribute_values(":ua", AttributeValue::S(chrono_now()))
+                    .send()
+                    .await
+                    .map_err(|e| AppError::Internal(format!("DynamoDB update failed: {e}")))?;
+            }
+            None => {
+                self.dynamo
+                    .update_item()
+                    .table_name(&self.table_name)
+                    .key("pk", AttributeValue::S(pk))
+                    .key("sk", AttributeValue::S(PROFILE_SK.to_string()))
+                    .update_expression("REMOVE slug SET updated_at = :ua")
+                    .expression_attribute_values(":ua", AttributeValue::S(chrono_now()))
+                    .send()
+                    .await
+                    .map_err(|e| AppError::Internal(format!("DynamoDB update failed: {e}")))?;
+            }
+        }
+
+        // Release the old pointer last, best-effort — a leftover pointer
+        // just keeps that old slug reserved, it doesn't corrupt anything.
+        if let Some(old_slug) = existing_slug {
+            let old_pk = Self::slug_pk(&old_slug);
+            if let Err(e) = self
+                .dynamo
+                .delete_item()
+                .table_name(&self.table_name)
+                .key("pk", AttributeValue::S(old_pk))
+                .key("sk", AttributeValue::S(SLUG_SK.to_string()))
+                .send()
+                .await
+            {
+                tracing::warn!(profile_id = %profile_id, old_slug = %old_slug, error = %e, "Failed to release old slug pointer");
+            }
+        }
+
+        self.get_profile_full(&profile_id).await
+    }
+
     /// Delete a profile, all its link items, its `EMAIL#` pointer, and the
     /// user's Cognito account. The caller's own access token is passed through
     /// to Cognito's `DeleteUser` API — no admin credentials are required.
@@ -425,6 +604,12 @@ impl ProfileStore {
         if items.is_empty() {
             return Err(AppError::NotFound);
         }
+
+        let profile_item = items
+            .iter()
+            .find(|item| get_string(item, "sk").as_deref() == Some(PROFILE_SK));
+        let slug = profile_item.and_then(|item| get_string(item, "slug"));
+        let image_key = profile_item.and_then(|item| get_string(item, "image_key"));
 
         // Delete all items
         for item in items {
@@ -454,15 +639,32 @@ impl ProfileStore {
             .await
             .map_err(|e| AppError::Internal(format!("DynamoDB pointer delete failed: {e}")))?;
 
-        // Delete profile image from S3 if it exists
-        let image_key = format!("images/{profile_id}");
-        let _ = self
-            .s3
-            .delete_object()
-            .bucket(&self.bucket_name)
-            .key(&image_key)
-            .send()
-            .await;
+        // Delete the SLUG# pointer too, if one was claimed — otherwise the
+        // slug would stay permanently reserved by a profile that no longer
+        // exists.
+        if let Some(slug) = slug {
+            self.dynamo
+                .delete_item()
+                .table_name(&self.table_name)
+                .key("pk", AttributeValue::S(Self::slug_pk(&slug)))
+                .key("sk", AttributeValue::S(SLUG_SK.to_string()))
+                .send()
+                .await
+                .map_err(|e| AppError::Internal(format!("DynamoDB slug pointer delete failed: {e}")))?;
+        }
+
+        // Delete profile image from S3 if one was ever uploaded — its key
+        // is whatever upload_image last stored, not derivable from
+        // profile_id alone (each upload gets a unique cache-busting key).
+        if let Some(image_key) = image_key {
+            let _ = self
+                .s3
+                .delete_object()
+                .bucket(&self.bucket_name)
+                .key(&image_key)
+                .send()
+                .await;
+        }
 
         // Delete the Cognito user using their own access token — no admin
         // credentials required. Cognito validates the token, so a forged or
@@ -669,6 +871,30 @@ impl ProfileStore {
         Ok(())
     }
 
+    /// Looks up the raw `image_key` attribute currently stored for a
+    /// profile, if any. Unlike `Profile.image_url` (the computed,
+    /// client-facing form), this is the actual S3 key — needed internally
+    /// to preserve or replace it without guessing its shape.
+    async fn get_image_key(&self, profile_id: &str) -> Result<Option<String>, AppError> {
+        let pk = format!("PROFILE#{profile_id}");
+
+        let result = self
+            .dynamo
+            .get_item()
+            .table_name(&self.table_name)
+            .key("pk", AttributeValue::S(pk))
+            .key("sk", AttributeValue::S(PROFILE_SK.to_string()))
+            .projection_expression("image_key")
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(format!("DynamoDB get failed: {e}")))?;
+
+        Ok(result
+            .item
+            .as_ref()
+            .and_then(|item| get_string(item, "image_key")))
+    }
+
     /// Upload a profile image to S3.
     ///
     /// The declared `content_type` from the client is never trusted for
@@ -676,6 +902,14 @@ impl ProfileStore {
     /// accept a fixed allow-list of raster formats. This prevents uploading
     /// SVG/HTML/script content mislabeled as an image, which could lead to
     /// stored XSS if the bucket or serving path is ever misconfigured.
+    ///
+    /// Each upload gets a fresh, uniquely-named key
+    /// (`images/{profile_id}/{version}`) rather than overwriting a fixed
+    /// key — CloudFront caches `/images/*` aggressively (see
+    /// FrontendStack), so overwriting in place meant a re-upload could
+    /// stay stale behind the cache until it expired, and paying for an
+    /// explicit invalidation on every upload isn't worth it. The old key
+    /// (if any) is deleted from S3 best-effort after the new one is live.
     pub async fn upload_image(
         &self,
         email: &str,
@@ -683,7 +917,8 @@ impl ProfileStore {
         content_type: &str,
     ) -> Result<String, AppError> {
         let profile_id = self.get_or_create_profile_id_for_email(email).await?;
-        let image_key = format!("images/{profile_id}");
+        let old_image_key = self.get_image_key(&profile_id).await?;
+        let image_key = format!("images/{profile_id}/{}", generate_image_version());
 
         // Validate size (4MB max)
         const MAX_IMAGE_SIZE: usize = 4 * 1024 * 1024;
@@ -737,6 +972,24 @@ impl ProfileStore {
             .send()
             .await
             .map_err(|e| AppError::Internal(format!("DynamoDB update failed: {e}")))?;
+
+        // Release the old object last, best-effort — the profile item
+        // already points at the new key, so a failure here just leaves a
+        // harmless orphaned object rather than corrupting anything.
+        if let Some(old_key) = old_image_key
+            && old_key != image_key
+        {
+            if let Err(e) = self
+                .s3
+                .delete_object()
+                .bucket(&self.bucket_name)
+                .key(&old_key)
+                .send()
+                .await
+            {
+                tracing::warn!(profile_id = %profile_id, old_key = %old_key, error = %e, "Failed to delete old profile image");
+            }
+        }
 
         let image_url = format!("{}/{}", self.image_base_url, image_key);
         Ok(image_url)
@@ -909,6 +1162,74 @@ mod email_pk_tests {
             ProfileStore::email_pk("test@example.com"),
             ProfileStore::email_pk("Test@Example.com")
         );
+    }
+}
+
+#[cfg(test)]
+mod slug_pk_tests {
+    use super::ProfileStore;
+
+    #[test]
+    fn lowercases_and_trims() {
+        assert_eq!(
+            ProfileStore::slug_pk("  Ada-Lovelace  "),
+            "SLUG#ada-lovelace"
+        );
+    }
+
+    #[test]
+    fn is_deterministic() {
+        assert_eq!(
+            ProfileStore::slug_pk("ada-lovelace"),
+            ProfileStore::slug_pk("Ada-Lovelace")
+        );
+    }
+}
+
+#[cfg(test)]
+mod resolve_profile_id_tests {
+    use super::ProfileStore;
+
+    /// A `ProfileStore` backed by dummy (non-network) AWS SDK clients —
+    /// sufficient for the plain-ID branch of `resolve_profile_id`, which
+    /// never touches the network.
+    fn test_store() -> ProfileStore {
+        let dynamo_config = aws_sdk_dynamodb::Config::builder()
+            .behavior_version(aws_sdk_dynamodb::config::BehaviorVersion::latest())
+            .region(aws_sdk_dynamodb::config::Region::new("us-east-1"))
+            .credentials_provider(aws_sdk_dynamodb::config::Credentials::for_tests())
+            .build();
+        let s3_config = aws_sdk_s3::Config::builder()
+            .behavior_version(aws_sdk_s3::config::BehaviorVersion::latest())
+            .region(aws_sdk_s3::config::Region::new("us-east-1"))
+            .credentials_provider(aws_sdk_s3::config::Credentials::for_tests())
+            .build();
+        let cognito_config = aws_sdk_cognitoidentityprovider::Config::builder()
+            .behavior_version(aws_sdk_cognitoidentityprovider::config::BehaviorVersion::latest())
+            .region(aws_sdk_cognitoidentityprovider::config::Region::new(
+                "us-east-1",
+            ))
+            .credentials_provider(aws_sdk_cognitoidentityprovider::config::Credentials::for_tests())
+            .build();
+
+        ProfileStore::new(
+            aws_sdk_dynamodb::Client::from_conf(dynamo_config),
+            aws_sdk_s3::Client::from_conf(s3_config),
+            aws_sdk_cognitoidentityprovider::Client::from_conf(cognito_config),
+            "test-table".to_string(),
+            "test-bucket".to_string(),
+            "".to_string(),
+        )
+    }
+
+    #[tokio::test]
+    async fn plain_id_is_returned_unchanged_without_a_slug_lookup() {
+        let store = test_store();
+        let resolved = store
+            .resolve_profile_id("abc123def456")
+            .await
+            .expect("should not touch the network for a non-@ input");
+        assert_eq!(resolved, "abc123def456");
     }
 }
 

@@ -1,14 +1,17 @@
-// Rewrites /p/{id} requests from known social-media crawler User-Agents to
-// /__og/profile/{id}, a route that returns static HTML with OpenGraph/
-// Twitter meta tags (the real /p/{id} page is a client-rendered SPA, which
-// crawlers can't execute). Real visitors are left completely untouched —
-// only requests whose User-Agent matches a known crawler are rewritten.
+// Rewrites /p/{id} and /@{slug} requests from known social-media crawler
+// User-Agents to /__og/profile/{id} (or /__og/profile/@{slug}), a route that
+// returns static HTML with OpenGraph/Twitter meta tags (the real /p/{id} and
+// /@{slug} pages are a client-rendered SPA, which crawlers can't execute).
+// Real visitors are left completely untouched — only requests whose
+// User-Agent matches a known crawler are rewritten. The `@` is kept in the
+// rewritten path so the backend resolves it as a slug the same way it does
+// for the SPA's own API calls (see ProfileStore::resolve_profile_id).
 //
 // CloudFront Functions run on a restricted JS runtime (no network calls,
 // limited API surface) — keep this dependency-free and small (10 KB limit).
 function handler(event) {
   var request = event.request;
-  var match = request.uri.match(/^\/p\/([^/]+)$/);
+  var match = request.uri.match(/^\/p\/([^/]+)$/) || request.uri.match(/^\/(@[^/]+)$/);
 
   if (match) {
     var uaHeader = request.headers["user-agent"];

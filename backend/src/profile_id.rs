@@ -27,6 +27,17 @@ pub fn generate_connection_id() -> String {
     generate_profile_id()
 }
 
+/// Generates a random 12-character lowercase-hex token used to make each
+/// profile image upload's S3 key unique (`images/{profile_id}/{version}`).
+/// Same generator as `generate_profile_id` — a distinct name because this
+/// is a cache-busting version tag, not an identifier looked up on its own.
+/// Deterministic keys (`images/{profile_id}`) meant a re-upload silently
+/// served the old image until CloudFront's cache for that path expired, or
+/// paid-for invalidation was issued — a fresh key per upload sidesteps both.
+pub fn generate_image_version() -> String {
+    generate_profile_id()
+}
+
 fn encode(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }

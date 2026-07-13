@@ -153,6 +153,37 @@ describe('profile API handlers', () => {
     expect(saved.image_url).toBe('data:image/jpeg;base64,aGk=')
   })
 
+  it('preserves a previously-set slug across an unrelated PUT /api/profile save', async () => {
+    await handleMockRequest(
+      request('/api/profile/slug', {
+        method: 'PUT',
+        headers: AUTH_HEADER,
+        body: JSON.stringify({ slug: 'ada-lovelace' }),
+      }),
+    )
+
+    const res = await handleMockRequest(
+      request('/api/profile', {
+        method: 'PUT',
+        headers: AUTH_HEADER,
+        body: JSON.stringify({
+          email: 'ada@example.com',
+          display_name: 'Ada King',
+          theme: 'dark',
+          display_email: false,
+          links: [],
+        }),
+      }),
+    )
+    const saved = await res?.json()
+    expect(saved.slug).toBe('ada-lovelace')
+
+    const me = await (
+      await handleMockRequest(request('/api/profile/me', { headers: AUTH_HEADER }))
+    )?.json()
+    expect(me.slug).toBe('ada-lovelace')
+  })
+
   it('serves the public card by id without auth and 404s unknown ids', async () => {
     const me = await (
       await handleMockRequest(request('/api/profile/me', { headers: AUTH_HEADER }))
@@ -163,6 +194,47 @@ describe('profile API handlers', () => {
 
     const missing = await handleMockRequest(request('/api/profile/nope'))
     expect(missing?.status).toBe(404)
+  })
+
+  it('sets a custom slug via PUT /api/profile/slug and serves it via @-prefixed lookup', async () => {
+    const res = await handleMockRequest(
+      request('/api/profile/slug', {
+        method: 'PUT',
+        headers: AUTH_HEADER,
+        body: JSON.stringify({ slug: 'ada-lovelace' }),
+      }),
+    )
+    expect(res?.status).toBe(200)
+    const saved = await res?.json()
+    expect(saved.slug).toBe('ada-lovelace')
+
+    const found = await handleMockRequest(request('/api/profile/@ada-lovelace'))
+    expect(found?.status).toBe(200)
+    const profile = await found?.json()
+    expect(profile.display_name).toBe('Ada Lovelace')
+
+    const missing = await handleMockRequest(request('/api/profile/@nope'))
+    expect(missing?.status).toBe(404)
+  })
+
+  it('clears the slug via PUT /api/profile/slug with a null value', async () => {
+    await handleMockRequest(
+      request('/api/profile/slug', {
+        method: 'PUT',
+        headers: AUTH_HEADER,
+        body: JSON.stringify({ slug: 'ada-lovelace' }),
+      }),
+    )
+
+    const res = await handleMockRequest(
+      request('/api/profile/slug', {
+        method: 'PUT',
+        headers: AUTH_HEADER,
+        body: JSON.stringify({ slug: null }),
+      }),
+    )
+    const saved = await res?.json()
+    expect(saved.slug).toBeUndefined()
   })
 
   it('deletes the profile and then 404s /me', async () => {

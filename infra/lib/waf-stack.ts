@@ -33,6 +33,7 @@ export class WafStack extends cdk.Stack {
       name: string,
       priority: number,
       metricSuffix: string,
+      ruleActionOverrides?: wafv2.CfnWebACL.RuleActionOverrideProperty[],
     ): wafv2.CfnWebACL.RuleProperty => ({
       name,
       priority,
@@ -41,6 +42,7 @@ export class WafStack extends cdk.Stack {
         managedRuleGroupStatement: {
           vendorName: "AWS",
           name,
+          ruleActionOverrides,
         },
       },
       visibilityConfig: {
@@ -60,7 +62,13 @@ export class WafStack extends cdk.Stack {
         metricName: `badgeit-${environment}`,
       },
       rules: [
-        managedRule("AWSManagedRulesCommonRuleSet", 0, "core-rule-set"),
+        managedRule("AWSManagedRulesCommonRuleSet", 0, "core-rule-set", [
+          // Default CRS blocks any request body over 8KB. Profile picture
+          // uploads send a base64-encoded, resized JPEG in a JSON body that
+          // routinely exceeds that — count instead of block so uploads
+          // aren't silently dropped by WAF before reaching the API.
+          { name: "SizeRestrictions_BODY", actionToUse: { count: {} } },
+        ]),
         managedRule("AWSManagedRulesKnownBadInputsRuleSet", 1, "known-bad-inputs"),
         managedRule("AWSManagedRulesAmazonIpReputationList", 2, "ip-reputation"),
         {

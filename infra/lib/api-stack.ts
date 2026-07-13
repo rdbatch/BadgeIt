@@ -218,6 +218,12 @@ export class ApiStack extends cdk.Stack {
     });
 
     httpApi.addRoutes({
+      path: "/api/profile/slug",
+      methods: [apigwv2.HttpMethod.PUT],
+      integration,
+    });
+
+    httpApi.addRoutes({
       path: "/api/connections",
       methods: [apigwv2.HttpMethod.GET, apigwv2.HttpMethod.POST],
       integration,

@@ -36,15 +36,21 @@ fn escape_html(input: &str) -> String {
 /// spec. It's optional (empty string) until a custom domain is configured;
 /// in that case `og:url` and `og:image` are omitted rather than emitting
 /// invalid relative URLs that crawlers would reject.
-pub fn render_og_html(profile: Option<&Profile>, profile_id: &str, site_url: &str) -> String {
+///
+/// `id_or_slug` is the raw path segment the crawler actually requested —
+/// either a bare profile ID (rendered as `/p/{id}`) or an `@`-prefixed
+/// custom slug (rendered as `/@{slug}`) — so a shared vanity link unfurls
+/// with that same vanity URL rather than the underlying ID.
+pub fn render_og_html(profile: Option<&Profile>, id_or_slug: &str, site_url: &str) -> String {
+    let page_path = match id_or_slug.strip_prefix('@') {
+        Some(slug) => format!("/@{slug}"),
+        None => format!("/p/{id_or_slug}"),
+    };
+
     let page_url = if site_url.is_empty() {
         None
     } else {
-        Some(format!(
-            "{}/p/{}",
-            site_url.trim_end_matches('/'),
-            profile_id
-        ))
+        Some(format!("{}{}", site_url.trim_end_matches('/'), page_path))
     };
 
     let (title, description, image_url) = match profile {
@@ -107,7 +113,7 @@ pub fn render_og_html(profile: Option<&Profile>, profile_id: &str, site_url: &st
         tags.push(r#"<meta name="twitter:card" content="summary">"#.to_string());
     }
 
-    let link_href = escape_html(&page_url.unwrap_or_else(|| format!("/p/{profile_id}")));
+    let link_href = escape_html(&page_url.unwrap_or(page_path));
 
     format!(
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>{title}</title>\n{meta}\n</head>\n<body>\n<p>{description}</p>\n<p><a href=\"{link_href}\">View this BadgeIt card</a></p>\n</body>\n</html>\n",
@@ -126,6 +132,7 @@ mod tests {
     fn test_profile() -> Profile {
         Profile {
             id: "abc123".to_string(),
+            slug: None,
             email: Some("test@example.com".to_string()),
             display_name: Some("Ada Lovelace".to_string()),
             tagline: Some("Countess of Computing".to_string()),
@@ -186,6 +193,21 @@ mod tests {
     }
 
     #[test]
+    fn builds_slug_url_when_id_is_at_prefixed() {
+        let html = render_og_html(Some(&test_profile()), "@ada-lovelace", "https://badgeit.app");
+        assert!(
+            html.contains(r#"<meta property="og:url" content="https://badgeit.app/@ada-lovelace">"#)
+        );
+        assert!(!html.contains("/p/@ada-lovelace"));
+    }
+
+    #[test]
+    fn falls_back_to_slug_relative_link_when_site_url_is_empty() {
+        let html = render_og_html(Some(&test_profile()), "@ada-lovelace", "");
+        assert!(html.contains(r#"href="/@ada-lovelace""#));
+    }
+
+    #[test]
     fn keeps_an_already_absolute_image_url_unchanged() {
         let mut profile = test_profile();
         profile.image_url = Some("https://cdn.example.com/photo.jpg".to_string());
@@ -231,6 +253,7 @@ mod tests {
         use crate::models::{SocialLink, SocialPlatform};
         let profile = Profile {
             id: "mockprofile01".to_string(),
+            slug: None,
             email: Some("ada@example.com".to_string()),
             display_name: Some("Ada Lovelace".to_string()),
             tagline: Some("Analytical Engine Programmer".to_string()),

@@ -64,6 +64,8 @@ export const DEFAULT_CUSTOM_THEME_COLORS: CustomThemeColors = {
 /** Complete user profile */
 export interface Profile {
   email: string
+  /** Custom vanity URL segment (`/@{slug}`), if the owner has claimed one. */
+  slug?: string
   displayName?: string
   tagline?: string
   phone?: string

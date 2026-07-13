@@ -20,6 +20,9 @@ pub enum AppError {
     #[error("Payload too large: {0}")]
     PayloadTooLarge(String),
 
+    #[error("Conflict: {0}")]
+    Conflict(String),
+
     #[error("Internal error: {0}")]
     Internal(String),
 }
@@ -32,6 +35,7 @@ impl AppError {
             Self::Unauthorized => 401,
             Self::Forbidden => 403,
             Self::PayloadTooLarge(_) => 413,
+            Self::Conflict(_) => 409,
             Self::Internal(_) => 500,
         }
     }
@@ -96,6 +100,12 @@ mod tests {
     fn payload_too_large_returns_413() {
         let err = AppError::PayloadTooLarge("exceeds 4MB".to_string());
         assert_eq!(err.status_code(), 413);
+    }
+
+    #[test]
+    fn conflict_returns_409() {
+        let err = AppError::Conflict("slug already taken".to_string());
+        assert_eq!(err.status_code(), 409);
     }
 
     #[test]

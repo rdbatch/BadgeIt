@@ -39,10 +39,27 @@ const platformLabels: Record<SocialPlatform, string> = {
   custom: 'Link',
 }
 
+const platformPlaceholders: Record<SocialPlatform, string> = {
+  linkedin: 'linkedin.com/in/you',
+  github: 'github.com/you',
+  twitter: 'x.com/you',
+  instagram: 'instagram.com/you',
+  youtube: 'youtube.com/@you',
+  mastodon: 'mastodon.social/@you',
+  bluesky: 'you.bsky.social',
+  website: 'yoursite.com',
+  calendar: 'cal.com/you',
+  custom: 'example.com',
+}
+
 export function getPlatformIcon(platform: SocialPlatform): React.ComponentType<IconProps> {
   return platformIcons[platform]
 }
 
 export function getPlatformLabel(platform: SocialPlatform): string {
   return platformLabels[platform]
+}
+
+export function getPlatformPlaceholder(platform: SocialPlatform): string {
+  return platformPlaceholders[platform]
 }

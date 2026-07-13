@@ -23,6 +23,7 @@ const MOCK_PROFILE_ID = 'mockprofile01'
 interface StoredProfile {
   id: string
   email: string
+  slug?: string
   display_name?: string
   tagline?: string
   phone?: string
@@ -158,11 +159,19 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
   const store = readStore()
 
   // Public card lookup — the only /api route without auth. Mirrors the real
-  // backend's best-effort view counter on every public fetch.
+  // backend's best-effort view counter on every public fetch. The requested
+  // segment may be a raw ID or an `@`-prefixed slug (see
+  // ProfileStore::resolve_profile_id on the real backend).
   const publicMatch = pathname.match(/^\/api\/profile\/([^/]+)$/)
   if (method === 'GET' && publicMatch && publicMatch[1] !== 'me') {
-    if (store.profile && publicMatch[1] === store.profile.id) {
-      const viewed = { ...store.profile, view_count: (store.profile.view_count ?? 0) + 1 }
+    const requested = publicMatch[1]
+    const existing = store.profile
+    const matchesProfile =
+      existing !== null &&
+      (requested === existing.id ||
+        (requested.startsWith('@') && requested.slice(1) === existing.slug))
+    if (matchesProfile && existing) {
+      const viewed = { ...existing, view_count: (existing.view_count ?? 0) + 1 }
       writeStore({ ...store, profile: viewed })
       return json(viewed)
     }
@@ -178,13 +187,25 @@ async function handleApi(request: Request, url: URL): Promise<Response> {
   }
 
   if (method === 'PUT' && pathname === '/api/profile') {
-    const body = (await request.json()) as Omit<StoredProfile, 'id' | 'image_url'>
+    const body = (await request.json()) as Omit<StoredProfile, 'id' | 'image_url' | 'slug'>
     const profile: StoredProfile = {
       ...body,
-      // Preserve the server-assigned bits the PUT body doesn't carry.
+      // Preserve the server-assigned/separately-managed bits the PUT body
+      // doesn't carry — slug is set via its own endpoint (PUT
+      // /api/profile/slug), never part of this request.
       id: store.profile?.id ?? MOCK_PROFILE_ID,
       image_url: store.profile?.image_url,
+      slug: store.profile?.slug,
     }
+    writeStore({ ...store, profile })
+    return json(profile)
+  }
+
+  if (method === 'PUT' && pathname === '/api/profile/slug') {
+    const existing = store.profile
+    if (!existing) return json({ message: 'Not found' }, 404)
+    const body = (await request.json()) as { slug?: string | null }
+    const profile: StoredProfile = { ...existing, slug: body.slug ?? undefined }
     writeStore({ ...store, profile })
     return json(profile)
   }

@@ -1,17 +1,30 @@
-import { useParams } from 'react-router'
+import { useParams, useNavigate } from 'react-router'
 import { useState, useEffect } from 'react'
 import { CardView } from '../components/CardView'
 import { getRuntimeConfig } from '../config/runtimeConfig'
 import type { Profile } from '../types/profile'
 
 export function PublicCardPage() {
-  const { id } = useParams<{ id: string }>()
+  // Exactly one of these is defined, depending on which route matched:
+  // `/p/:id` (the immutable ID, e.g. from a QR code) or the generic
+  // `/:slug` catch-all used for vanity URLs. `slug` captures the whole
+  // segment including its `@` prefix (React Router can't express a literal
+  // `@` combined with a `:param` in one segment — see router.tsx) — a
+  // segment without one isn't a valid vanity URL.
+  const { id, slug: rawSlug } = useParams<{ id?: string; slug?: string }>()
+  const slug = rawSlug?.startsWith('@') ? rawSlug : undefined
+  const navigate = useNavigate()
   const [profile, setProfile] = useState<Profile | null>(null)
+  // The profile's real, immutable ID — always used to identify this profile
+  // in API calls (e.g. saving a connection), regardless of which URL the
+  // visitor arrived on. Never the slug, since a slug can change or be
+  // cleared later.
+  const [profileId, setProfileId] = useState<string | undefined>(undefined)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<'not-found' | 'error' | null>(null)
 
   useEffect(() => {
-    if (!id) {
+    if (!id && !slug) {
       setError('not-found')
       setIsLoading(false)
       return
@@ -20,7 +33,11 @@ export function PublicCardPage() {
     async function fetchProfile() {
       try {
         const apiBase = getRuntimeConfig().apiBase
-        const res = await fetch(`${apiBase}/api/profile/${id}`)
+        // `slug` already carries its `@` prefix (see the param derivation
+        // above), which is also what the backend expects as the signal to
+        // resolve it as a slug rather than a raw ID.
+        const lookup = id ?? slug
+        const res = await fetch(`${apiBase}/api/profile/${lookup}`)
         if (res.status === 404) {
           setError('not-found')
           return
@@ -34,6 +51,7 @@ export function PublicCardPage() {
         // Map snake_case API response to camelCase frontend types
         const mapped: Profile = {
           email: data.email,
+          slug: data.slug,
           displayName: data.display_name,
           tagline: data.tagline,
           phone: data.phone,
@@ -53,6 +71,14 @@ export function PublicCardPage() {
           links: data.links ?? [],
         }
         setProfile(mapped)
+        setProfileId(data.id)
+
+        // Arrived via the immutable-ID URL (e.g. a QR scan) and a vanity
+        // slug is set — swap the address bar over to it. Arriving via
+        // `/@:slug` directly needs no redirect, it's already the pretty URL.
+        if (id && data.slug) {
+          navigate(`/@${data.slug}`, { replace: true })
+        }
       } catch {
         setError('error')
       } finally {
@@ -61,7 +87,7 @@ export function PublicCardPage() {
     }
 
     fetchProfile()
-  }, [id])
+  }, [id, slug, navigate])
 
   if (isLoading) {
     return (
@@ -110,5 +136,5 @@ export function PublicCardPage() {
 
   if (!profile) return null
 
-  return <CardView profile={profile} profileId={id} />
+  return <CardView profile={profile} profileId={profileId} />
 }

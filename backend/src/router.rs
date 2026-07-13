@@ -7,7 +7,7 @@ use crate::auth::{AuthConfig, authorize_profile_access, validate_token};
 use crate::error::AppError;
 use crate::models::{
     ConnectionCreateRequest, ConnectionUpdateRequest, ImageUploadRequest, ImageUploadResponse,
-    ProfileDeleteRequest, ProfileUpdateRequest,
+    ProfileDeleteRequest, ProfileUpdateRequest, SlugUpdateRequest, validate_slug,
 };
 use crate::og::render_og_html;
 use crate::store::ProfileStore;
@@ -43,6 +43,7 @@ pub async fn route(
         ("PUT", "/api/profile") => handle_upsert_profile(event, store, auth_config).await,
         ("DELETE", "/api/profile") => handle_delete_profile(event, store, auth_config).await,
         ("POST", "/api/profile/image") => handle_upload_image(event, store, auth_config).await,
+        ("PUT", "/api/profile/slug") => handle_update_slug(event, store, auth_config).await,
         ("GET", "/api/connections") => handle_list_connections(event, store, auth_config).await,
         ("POST", "/api/connections") => handle_create_connection(event, store, auth_config).await,
         ("DELETE", p) if p.starts_with("/api/connections/") => {
@@ -80,7 +81,9 @@ pub async fn route(
     response
 }
 
-/// GET /api/profile/{id} — public, no auth required
+/// GET /api/profile/{id} — public, no auth required. `id` may also be a
+/// custom slug, prefixed with `@` (e.g. `@ada-lovelace`) — see
+/// `ProfileStore::resolve_profile_id`.
 async fn handle_get_profile(
     id: &str,
     store: &ProfileStore,
@@ -89,12 +92,13 @@ async fn handle_get_profile(
         return Err(AppError::BadRequest("Profile ID is required".to_string()));
     }
 
-    let profile = store.get_profile(id).await?;
+    let profile_id = store.resolve_profile_id(id).await?;
+    let profile = store.get_profile(&profile_id).await?;
 
     // Best-effort — a failed increment (e.g. a delete racing this request)
     // must never fail the fetch itself, since the profile was already read.
-    if let Err(e) = store.increment_view_count(id).await {
-        tracing::warn!(profile_id = id, error = %e, "Failed to increment view count");
+    if let Err(e) = store.increment_view_count(&profile_id).await {
+        tracing::warn!(profile_id = %profile_id, error = %e, "Failed to increment view count");
     }
 
     // Usage-counter log line — queried by ApiStack's dashboard (app-wide
@@ -102,7 +106,7 @@ async fn handle_get_profile(
     // from the per-profile view_count surfaced on the edit page.
     tracing::info!(
         metric = "public_card_view",
-        profile_id = id,
+        profile_id = %profile_id,
         "Public card viewed"
     );
 
@@ -119,7 +123,13 @@ async fn handle_og_profile(
     store: &ProfileStore,
     site_url: &str,
 ) -> ApiGatewayV2httpResponse {
-    let (status, html) = match store.get_profile(id).await {
+    let result = async {
+        let profile_id = store.resolve_profile_id(id).await?;
+        store.get_profile(&profile_id).await
+    }
+    .await;
+
+    let (status, html) = match result {
         Ok(profile) => (200, render_og_html(Some(&profile), id, site_url)),
         Err(AppError::NotFound) => (404, render_og_html(None, id, site_url)),
         Err(e) => {
@@ -240,6 +250,28 @@ async fn handle_upload_image(
         .await?;
 
     json_response(200, &ImageUploadResponse { image_url })
+}
+
+/// PUT /api/profile/slug — authenticated, user can only set/clear their own
+/// profile's custom slug. An empty or absent `slug` clears it.
+async fn handle_update_slug(
+    event: &ApiGatewayV2httpRequest,
+    store: &ProfileStore,
+    auth_config: &AuthConfig,
+) -> Result<ApiGatewayV2httpResponse, AppError> {
+    let token_email = validate_token(event, auth_config).await?;
+
+    let body = get_request_body(event)?;
+    let req: SlugUpdateRequest = serde_json::from_str(&body)
+        .map_err(|e| AppError::BadRequest(format!("Invalid request body: {e}")))?;
+
+    let slug = req.slug.as_deref().filter(|s| !s.trim().is_empty());
+    if let Some(s) = slug {
+        validate_slug(s).map_err(AppError::BadRequest)?;
+    }
+
+    let profile = store.set_slug(&token_email, slug).await?;
+    json_response(200, &profile)
 }
 
 /// GET /api/connections — authenticated, lists the caller's saved
@@ -490,6 +522,25 @@ mod tests {
                 "expected 401 for unauthenticated {path}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn slug_route_requires_auth() {
+        let event = ApiGatewayV2httpRequest {
+            raw_path: Some("/api/profile/slug".to_string()),
+            request_context: aws_lambda_events::apigw::ApiGatewayV2httpRequestContext {
+                http: aws_lambda_events::apigw::ApiGatewayV2httpRequestContextHttpDescription {
+                    method: aws_lambda_events::http::Method::PUT,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let store = test_store();
+        let auth_config = test_auth_config();
+        let response = route(&event, &store, &auth_config, "").await;
+        assert_eq!(response.status_code, 401);
     }
 
     #[test]

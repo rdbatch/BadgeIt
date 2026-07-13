@@ -8,7 +8,7 @@ import {
   getCachedProfileTheme,
   setCachedProfileTheme,
 } from '../constants/themes'
-import { getPlatformIcon, getPlatformLabel } from '../constants/socialPlatforms'
+import { getPlatformIcon, getPlatformLabel, getPlatformPlaceholder } from '../constants/socialPlatforms'
 import { QRModal } from '../components/QRModal'
 import { Print3DModal } from '../components/Print3DModal'
 import { DownloadDropdown } from '../components/DownloadDropdown'
@@ -19,8 +19,8 @@ import { parseVCard } from '../lib/vcardImport'
 import { DEFAULT_CUSTOM_THEME_COLORS, type CustomThemeColors, type SocialLink, type SocialPlatform, type ThemeId } from '../types/profile'
 
 const SOCIAL_PLATFORMS: SocialPlatform[] = [
-  'linkedin', 'github', 'twitter', 'instagram', 'youtube',
-  'mastodon', 'bluesky', 'website', 'calendar', 'custom',
+  'custom', 'linkedin', 'github', 'instagram', 'youtube',
+  'mastodon', 'bluesky', 'website', 'calendar', 'twitter',
 ]
 
 export function EditProfilePage() {
@@ -35,6 +35,13 @@ export function EditProfilePage() {
   }, [isAuthenticated, navigate])
 
   const [displayName, setDisplayName] = useState('')
+  const [slug, setSlug] = useState('')
+  // What the server currently has on file — lets handleSave skip the slug
+  // endpoint entirely when the field wasn't touched.
+  const [initialSlug, setInitialSlug] = useState('')
+  // True after a 409 from the slug endpoint — highlights the field red
+  // until the user edits it again.
+  const [slugConflict, setSlugConflict] = useState(false)
   const [tagline, setTagline] = useState('')
   const [phone, setPhone] = useState('')
   const [location, setLocation] = useState('')
@@ -98,6 +105,8 @@ export function EditProfilePage() {
           const data = await res.json()
           setProfileId(data.id)
           setViewCount(data.view_count ?? 0)
+          setSlug(data.slug ?? '')
+          setInitialSlug(data.slug ?? '')
           setDisplayName(data.display_name ?? '')
           setTagline(data.tagline ?? '')
           setPhone(data.phone ?? '')
@@ -152,6 +161,7 @@ export function EditProfilePage() {
     e.preventDefault()
     setIsSaving(true)
     setSaveMessage('')
+    setSlugConflict(false)
 
     try {
       const body = {
@@ -201,6 +211,36 @@ export function EditProfilePage() {
         setProfileId(saved.id)
       }
       setCachedProfileTheme(theme, customTheme)
+
+      // Update the custom URL slug if changed
+      if (slug !== initialSlug) {
+        const slugRes = await fetch(`${getRuntimeConfig().apiBase}/api/profile/slug`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session?.idToken}`,
+          },
+          body: JSON.stringify({ slug: slug || null }),
+        })
+
+        if (slugRes.status === 401) {
+          handleUnauthorized()
+          return
+        }
+
+        if (slugRes.status === 409) {
+          setSlugConflict(true)
+          throw new Error('That custom URL is already taken')
+        }
+
+        if (!slugRes.ok) {
+          throw new Error(`Custom URL update failed: ${slugRes.status}`)
+        }
+
+        const slugSaved = await slugRes.json()
+        setSlug(slugSaved.slug ?? '')
+        setInitialSlug(slugSaved.slug ?? '')
+      }
 
       // Upload image if changed
       if (imageFile) {
@@ -315,7 +355,7 @@ export function EditProfilePage() {
   }
 
   function addLink() {
-    setLinks([...links, { platform: 'linkedin', url: '' }])
+    setLinks([...links, { platform: 'custom', url: '' }])
   }
 
   function removeLink(index: number) {
@@ -452,6 +492,43 @@ export function EditProfilePage() {
               placeholder="Your name"
               className={`mt-1 block w-full rounded-lg border border-current/20 bg-transparent px-4 py-3 placeholder-current/40 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none ${activeTheme.text}`}
             />
+          </div>
+
+          {/* Custom URL */}
+          <div>
+            <label htmlFor="slug" className={`block text-sm font-medium ${activeTheme.text}`}>
+              Custom URL <span className={`font-normal ${activeTheme.textMuted}`}>(optional)</span>
+            </label>
+            <div
+              className={`mt-1 flex items-center rounded-lg border ${
+                slugConflict
+                  ? 'border-red-500 ring-2 ring-red-500'
+                  : 'border-current/20 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500'
+              } ${activeTheme.text}`}
+            >
+              <span
+                className={`max-w-[45%] shrink-0 truncate py-3 pl-4 text-sm ${activeTheme.textMuted}`}
+                title={`${window.location.origin}/@`}
+              >
+                {window.location.origin}/@
+              </span>
+              <input
+                id="slug"
+                type="text"
+                value={slug}
+                onChange={(e) => {
+                  setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))
+                  setSlugConflict(false)
+                }}
+                placeholder="your-name"
+                maxLength={30}
+                aria-invalid={slugConflict}
+                className="min-w-0 flex-1 bg-transparent py-3 pr-4 text-sm placeholder-current/40 focus:outline-none"
+              />
+            </div>
+            <p className={`mt-1 text-xs ${slugConflict ? 'text-red-600' : activeTheme.textMuted}`}>
+              3–30 characters: lowercase letters, numbers, and hyphens.
+            </p>
           </div>
 
           {/* Pronouns */}
@@ -610,7 +687,7 @@ export function EditProfilePage() {
                       inputMode="url"
                       value={link.url}
                       onChange={(e) => updateLink(index, 'url', e.target.value)}
-                      placeholder="linkedin.com/in/you"
+                      placeholder={getPlatformPlaceholder(link.platform)}
                       className={`min-w-0 flex-1 rounded-lg border border-current/20 bg-transparent px-3 py-2 text-sm placeholder-current/40 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 focus:outline-none ${activeTheme.text}`}
                       aria-label={`URL for link ${index + 1}`}
                     />

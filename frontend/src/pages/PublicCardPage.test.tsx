@@ -3,11 +3,25 @@ import { createMemoryRouter, RouterProvider } from 'react-router'
 import { AuthProvider } from '../auth'
 import { PublicCardPage } from './PublicCardPage'
 
+// React Router can't express a literal `@` combined with a `:param` in one
+// path segment, so `/@{slug}` vanity URLs are matched by a generic `/:slug`
+// catch-all (see router.tsx) — mirrored here for the tests.
+const testRoutes = [
+  { path: '/p/:id', element: <PublicCardPage /> },
+  { path: '/:slug', element: <PublicCardPage /> },
+]
+
 function renderPublicCard(id = 'abc123') {
-  const router = createMemoryRouter(
-    [{ path: '/p/:id', element: <PublicCardPage /> }],
-    { initialEntries: [`/p/${id}`] },
+  const router = createMemoryRouter(testRoutes, { initialEntries: [`/p/${id}`] })
+  return render(
+    <AuthProvider>
+      <RouterProvider router={router} />
+    </AuthProvider>,
   )
+}
+
+function renderPublicCardBySlug(slug = 'ada-lovelace') {
+  const router = createMemoryRouter(testRoutes, { initialEntries: [`/@${slug}`] })
   return render(
     <AuthProvider>
       <RouterProvider router={router} />
@@ -82,5 +96,110 @@ describe('PublicCardPage', () => {
     await waitFor(() => {
       expect(screen.getByText('Card Not Found')).toBeInTheDocument()
     })
+  })
+
+  it('shows the not-found state for a catch-all segment with no @ prefix', async () => {
+    const fetchMock = vi.fn()
+    globalThis.fetch = fetchMock
+
+    const router = createMemoryRouter(testRoutes, { initialEntries: ['/random-typo'] })
+    render(
+      <AuthProvider>
+        <RouterProvider router={router} />
+      </AuthProvider>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Card Not Found')).toBeInTheDocument()
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('fetches by @-prefixed slug when loaded via a vanity URL', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          id: 'abc123',
+          slug: 'ada-lovelace',
+          email: 'ada@example.com',
+          display_name: 'Ada Lovelace',
+          theme: 'light',
+          display_email: true,
+          links: [],
+        }),
+    })
+    globalThis.fetch = fetchMock
+
+    renderPublicCardBySlug('ada-lovelace')
+
+    await waitFor(() => {
+      expect(screen.getByText('Ada Lovelace')).toBeInTheDocument()
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/profile/@ada-lovelace'),
+    )
+  })
+
+  it('redirects from /p/:id to the vanity URL when the profile has a claimed slug', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          id: 'abc123',
+          slug: 'ada-lovelace',
+          email: 'ada@example.com',
+          display_name: 'Ada Lovelace',
+          theme: 'light',
+          display_email: true,
+          links: [],
+        }),
+    })
+
+    const router = createMemoryRouter(testRoutes, { initialEntries: ['/p/abc123'] })
+    render(
+      <AuthProvider>
+        <RouterProvider router={router} />
+      </AuthProvider>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Ada Lovelace')).toBeInTheDocument()
+    })
+
+    expect(router.state.location.pathname).toBe('/@ada-lovelace')
+  })
+
+  it('does not redirect when loaded directly via a vanity URL', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          id: 'abc123',
+          slug: 'ada-lovelace',
+          email: 'ada@example.com',
+          display_name: 'Ada Lovelace',
+          theme: 'light',
+          display_email: true,
+          links: [],
+        }),
+    })
+
+    const router = createMemoryRouter(testRoutes, { initialEntries: ['/@ada-lovelace'] })
+    render(
+      <AuthProvider>
+        <RouterProvider router={router} />
+      </AuthProvider>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Ada Lovelace')).toBeInTheDocument()
+    })
+
+    expect(router.state.location.pathname).toBe('/@ada-lovelace')
   })
 })

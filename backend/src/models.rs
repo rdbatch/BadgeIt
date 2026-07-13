@@ -21,6 +21,38 @@ pub const MAX_LINK_URL_LEN: usize = 500;
 pub const MAX_LINK_LABEL_LEN: usize = 50;
 /// Maximum number of social links on a profile.
 pub const MAX_LINKS: usize = 20;
+/// Minimum length for a custom profile slug (`/@{slug}`).
+pub const MIN_SLUG_LEN: usize = 3;
+/// Maximum length for a custom profile slug (`/@{slug}`).
+pub const MAX_SLUG_LEN: usize = 30;
+
+/// Validates a custom profile slug: lowercase alphanumeric and hyphens only,
+/// must start and end with an alphanumeric character, and within length
+/// bounds. The slug is always passed here *without* its `@` prefix — that
+/// prefix is a URL/routing convention (see `ProfileStore::resolve_profile_id`),
+/// not part of the stored value.
+pub fn validate_slug(slug: &str) -> Result<(), String> {
+    if slug.len() < MIN_SLUG_LEN || slug.len() > MAX_SLUG_LEN {
+        return Err(format!(
+            "Custom URL must be between {MIN_SLUG_LEN} and {MAX_SLUG_LEN} characters"
+        ));
+    }
+
+    let bytes = slug.as_bytes();
+    let is_alphanumeric = |b: u8| b.is_ascii_lowercase() || b.is_ascii_digit();
+
+    if !is_alphanumeric(bytes[0]) || !is_alphanumeric(bytes[bytes.len() - 1]) {
+        return Err("Custom URL must start and end with a letter or number".to_string());
+    }
+
+    if !bytes.iter().all(|&b| is_alphanumeric(b) || b == b'-') {
+        return Err(
+            "Custom URL can only contain lowercase letters, numbers, and hyphens".to_string(),
+        );
+    }
+
+    Ok(())
+}
 
 /// Supported social platforms
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -137,6 +169,11 @@ fn is_hex_color(value: &str) -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Profile {
     pub id: String,
+    /// Optional custom vanity URL segment, reachable at `/@{slug}`. `None`
+    /// if the owner hasn't claimed one — the profile is still always
+    /// reachable at `/p/{id}`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slug: Option<String>,
     /// Always populated for the authenticated self-view. Set to `None`
     /// (and therefore omitted from the response) by `to_public()` when
     /// `display_email` is `false`.
@@ -294,6 +331,14 @@ pub struct ImageUploadRequest {
 #[derive(Debug, Clone, Serialize)]
 pub struct ImageUploadResponse {
     pub image_url: String,
+}
+
+/// Request body for setting/clearing a profile's custom slug.
+/// `None`/absent clears the current slug, reverting to `/p/{id}` only.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SlugUpdateRequest {
+    #[serde(default)]
+    pub slug: Option<String>,
 }
 
 /// Maximum length for a connection's name.
@@ -460,6 +505,7 @@ mod tests {
     fn profile_serializes_without_none_fields() {
         let profile = Profile {
             id: "abc123".to_string(),
+            slug: None,
             email: Some("test@example.com".to_string()),
             display_name: None,
             tagline: None,
@@ -489,6 +535,7 @@ mod tests {
     fn full_profile(display_email: bool) -> Profile {
         Profile {
             id: "abc123".to_string(),
+            slug: None,
             email: Some("test@example.com".to_string()),
             display_name: Some("Test User".to_string()),
             tagline: None,
@@ -872,5 +919,68 @@ mod tests {
         assert_eq!(req.name, "Grace Hopper");
         assert_eq!(req.notes, Some("Follow up".to_string()));
         assert_eq!(req.event, Some("re:Invent".to_string()));
+    }
+
+    #[test]
+    fn validate_slug_accepts_simple_slug() {
+        assert!(validate_slug("ada-lovelace").is_ok());
+    }
+
+    #[test]
+    fn validate_slug_accepts_alphanumeric() {
+        assert!(validate_slug("ada123").is_ok());
+    }
+
+    #[test]
+    fn validate_slug_rejects_too_short() {
+        assert!(validate_slug("ab").is_err());
+    }
+
+    #[test]
+    fn validate_slug_accepts_min_length() {
+        assert!(validate_slug("abc").is_ok());
+    }
+
+    #[test]
+    fn validate_slug_rejects_too_long() {
+        assert!(validate_slug(&"a".repeat(MAX_SLUG_LEN + 1)).is_err());
+    }
+
+    #[test]
+    fn validate_slug_accepts_max_length() {
+        assert!(validate_slug(&"a".repeat(MAX_SLUG_LEN)).is_ok());
+    }
+
+    #[test]
+    fn validate_slug_rejects_leading_hyphen() {
+        assert!(validate_slug("-ada").is_err());
+    }
+
+    #[test]
+    fn validate_slug_rejects_trailing_hyphen() {
+        assert!(validate_slug("ada-").is_err());
+    }
+
+    #[test]
+    fn validate_slug_rejects_uppercase() {
+        assert!(validate_slug("Ada-Lovelace").is_err());
+    }
+
+    #[test]
+    fn validate_slug_rejects_underscore() {
+        assert!(validate_slug("ada_lovelace").is_err());
+    }
+
+    #[test]
+    fn validate_slug_rejects_spaces() {
+        assert!(validate_slug("ada lovelace").is_err());
+    }
+
+    #[test]
+    fn validate_slug_accepts_a_string_shaped_like_a_profile_id() {
+        // The `@` prefix (applied by the router, not stored) is what
+        // disambiguates slugs from IDs — the bare slug value itself has no
+        // need to avoid hex-looking strings.
+        assert!(validate_slug("abc123def456").is_ok());
     }
 }

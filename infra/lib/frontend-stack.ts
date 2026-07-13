@@ -247,9 +247,10 @@ export class FrontendStack extends cdk.Stack {
         },
         // Profile images live in a private S3 bucket (DataStack) and are
         // served same-origin here via Origin Access Control — read-only,
-        // cached aggressively since uploaded images are effectively
-        // immutable (re-uploads overwrite the same key, but that's rare
-        // enough that stale-for-a-day is an acceptable trade-off).
+        // cached aggressively since each upload gets a unique key
+        // (ProfileStore::upload_image) rather than overwriting a fixed one,
+        // so a cached object is genuinely immutable — no invalidation is
+        // ever needed for a re-upload to show up immediately.
         "/images/*": {
           origin: imageBucketOrigin,
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
