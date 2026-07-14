@@ -178,9 +178,28 @@ export function CardView({ profile, profileId }: CardViewProps) {
             {profile.links.map((link, index) => {
               const Icon = getPlatformIcon(link.platform)
               const isGenericLink = link.platform === 'website' || link.platform === 'custom'
+              // A Discord entry without an http(s) scheme is a bare
+              // username (see EditProfilePage's normalizeLinkUrl) — shown
+              // as plain text since there's nowhere useful to link it to.
+              const isDiscordUsername = link.platform === 'discord' && !/^https?:\/\//i.test(link.url)
+
+              if (isDiscordUsername) {
+                return (
+                  <div
+                    key={`${link.platform}-${index}`}
+                    className={`flex items-center gap-3 rounded-lg border border-current/10 px-4 py-3 ${theme.accent}`}
+                  >
+                    <Icon className="h-5 w-5 shrink-0" />
+                    <span className="truncate">{link.label ?? link.url}</span>
+                  </div>
+                )
+              }
+
               const label =
                 link.label ??
-                (isGenericLink ? formatUrlForDisplay(link.url) : getPlatformLabel(link.platform))
+                (isGenericLink || link.platform === 'discord'
+                  ? formatUrlForDisplay(link.url)
+                  : getPlatformLabel(link.platform))
 
               return (
                 <a

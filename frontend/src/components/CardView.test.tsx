@@ -192,6 +192,41 @@ describe('CardView', () => {
     })
   })
 
+  describe('Discord link', () => {
+    it('renders a bare username as plain text with no hyperlink', () => {
+      const profile: Profile = {
+        ...minimalProfile,
+        links: [{ platform: 'discord', url: 'coolusername' }],
+      }
+      render(<CardView profile={profile} />)
+      const username = screen.getByText('coolusername')
+      expect(username.closest('a')).not.toBeInTheDocument()
+    })
+
+    it('renders a Discord URL as a link with the protocol stripped from the display text', () => {
+      const profile: Profile = {
+        ...minimalProfile,
+        links: [{ platform: 'discord', url: 'https://discord.gg/abc123' }],
+      }
+      render(<CardView profile={profile} />)
+      const link = screen.getByText('discord.gg/abc123').closest('a')
+      expect(link).toHaveAttribute('href', 'https://discord.gg/abc123')
+      expect(link).toHaveAttribute('target', '_blank')
+    })
+
+    it('prefers an explicit label over the derived text for both forms', () => {
+      const profile: Profile = {
+        ...minimalProfile,
+        links: [
+          { platform: 'discord', url: 'coolusername', label: 'Join my server' },
+        ],
+      }
+      render(<CardView profile={profile} />)
+      expect(screen.getByText('Join my server')).toBeInTheDocument()
+      expect(screen.queryByText('coolusername')).not.toBeInTheDocument()
+    })
+  })
+
   describe('footer', () => {
     it('renders Made with BadgeIt footer', () => {
       render(<CardView profile={fullProfile} />)

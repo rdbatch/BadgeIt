@@ -55,7 +55,7 @@ const platformPlaceholders: Record<SocialPlatform, string> = {
   bluesky: 'you.bsky.social',
   website: 'yoursite.com',
   calendar: 'cal.com/you',
-  discord: 'discord.gg/yourinvite',
+  discord: 'yourusername or discord.gg/yourinvite',
   twitch: 'twitch.tv/you',
   custom: 'example.com',
 }

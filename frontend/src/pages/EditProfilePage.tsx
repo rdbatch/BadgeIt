@@ -183,7 +183,7 @@ export function EditProfilePage() {
               }
             : undefined,
         display_email: displayEmail,
-        links: links.map((link) => ({ ...link, url: normalizeLinkUrl(link.url) })),
+        links: links.map((link) => ({ ...link, url: normalizeLinkUrl(link.url, link.platform) })),
       }
 
       const res = await fetch(`${getRuntimeConfig().apiBase}/api/profile`, {
@@ -926,11 +926,22 @@ export function EditProfilePage() {
  * Prepends https:// to a link URL that's missing a scheme, so users can
  * type "linkedin.com/in/x" without the save being rejected by the backend's
  * http(s)-only validation. Left untouched if already schemed or blank.
+ *
+ * Discord is the exception: its field also accepts a bare username, which
+ * is stored as-is (no scheme prepended) and rendered as plain text rather
+ * than a link — see CardView. A Discord value is only treated as a URL to
+ * normalize if it already looks like one (has a path segment or names a
+ * discord domain); anything else is left untouched as a username.
  */
-function normalizeLinkUrl(url: string): string {
+function normalizeLinkUrl(url: string, platform: SocialPlatform): string {
   const trimmed = url.trim()
   if (trimmed === '' || /^https?:\/\//i.test(trimmed)) return trimmed
+  if (platform === 'discord' && !looksLikeDiscordUrl(trimmed)) return trimmed
   return `https://${trimmed}`
+}
+
+function looksLikeDiscordUrl(value: string): boolean {
+  return value.includes('/') || value.toLowerCase().includes('discord.')
 }
 
 /**

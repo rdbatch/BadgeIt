@@ -355,6 +355,102 @@ describe('EditProfilePage link URL normalization', () => {
       expect(body.links).toEqual([{ platform: 'custom', url: 'http://example.com' }])
     })
   })
+
+  it('leaves a bare Discord username untouched, without prepending https://', async () => {
+    seedSession()
+
+    globalThis.fetch = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      if (!init || init.method === undefined) {
+        return Promise.resolve({ ok: false, status: 404 })
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            id: 'a1b2c3d4e5f6',
+            email: 'test@example.com',
+            theme: 'light',
+            display_email: true,
+            links: [],
+            created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-01-01T00:00:00Z',
+          }),
+      })
+    })
+
+    renderEditPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '+ Add link' })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '+ Add link' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Platform: Link' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Discord' }))
+    fireEvent.change(screen.getByLabelText('URL for link 1'), {
+      target: { value: 'coolusername' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      const putCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.find(
+        ([, init]) => init?.method === 'PUT',
+      )
+      expect(putCall).toBeDefined()
+      const body = JSON.parse(putCall![1].body as string)
+      expect(body.links).toEqual([{ platform: 'discord', url: 'coolusername' }])
+    })
+  })
+
+  it('prepends https:// to a schemeless Discord invite URL', async () => {
+    seedSession()
+
+    globalThis.fetch = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      if (!init || init.method === undefined) {
+        return Promise.resolve({ ok: false, status: 404 })
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            id: 'a1b2c3d4e5f6',
+            email: 'test@example.com',
+            theme: 'light',
+            display_email: true,
+            links: [],
+            created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-01-01T00:00:00Z',
+          }),
+      })
+    })
+
+    renderEditPage()
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '+ Add link' })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '+ Add link' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Platform: Link' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Discord' }))
+    fireEvent.change(screen.getByLabelText('URL for link 1'), {
+      target: { value: 'discord.gg/abc123' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      const putCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.find(
+        ([, init]) => init?.method === 'PUT',
+      )
+      expect(putCall).toBeDefined()
+      const body = JSON.parse(putCall![1].body as string)
+      expect(body.links).toEqual([{ platform: 'discord', url: 'https://discord.gg/abc123' }])
+    })
+  })
 })
 
 describe('EditProfilePage location and pronouns', () => {

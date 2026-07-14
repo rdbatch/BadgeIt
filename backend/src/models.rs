@@ -86,6 +86,12 @@ impl SocialLink {
     /// and `https://` URLs are accepted — this rejects `javascript:`,
     /// `data:`, and other schemes that could be used for stored XSS when
     /// rendered as a link's `href` on the public card.
+    ///
+    /// `Discord` is the one exception: its value may instead be a bare
+    /// username, which is rendered as plain text (never as an `href`) on
+    /// the public card — see `to_public`'s caller, the frontend's
+    /// `CardView`. So a schemeless value is only rejected for non-Discord
+    /// platforms.
     fn validate(&self) -> Result<(), String> {
         if self.url.len() > MAX_LINK_URL_LEN {
             return Err(format!(
@@ -94,8 +100,12 @@ impl SocialLink {
         }
 
         let lower = self.url.to_lowercase();
-        if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+        let is_web_url = lower.starts_with("http://") || lower.starts_with("https://");
+        if !is_web_url && self.platform != SocialPlatform::Discord {
             return Err("Link URL must start with http:// or https://".to_string());
+        }
+        if self.platform == SocialPlatform::Discord && self.url.trim().is_empty() {
+            return Err("Discord username or link is required".to_string());
         }
 
         if let Some(ref label) = self.label
@@ -777,6 +787,50 @@ mod tests {
             label: None,
         }];
         assert!(req.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_accepts_discord_bare_username() {
+        let mut req = base_request();
+        req.links = vec![SocialLink {
+            platform: SocialPlatform::Discord,
+            url: "coolusername".to_string(),
+            label: None,
+        }];
+        assert!(req.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_accepts_discord_url() {
+        let mut req = base_request();
+        req.links = vec![SocialLink {
+            platform: SocialPlatform::Discord,
+            url: "https://discord.gg/abc123".to_string(),
+            label: None,
+        }];
+        assert!(req.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_discord_empty_value() {
+        let mut req = base_request();
+        req.links = vec![SocialLink {
+            platform: SocialPlatform::Discord,
+            url: "".to_string(),
+            label: None,
+        }];
+        assert!(req.validate().is_err());
+    }
+
+    #[test]
+    fn validate_rejects_non_discord_bare_username() {
+        let mut req = base_request();
+        req.links = vec![SocialLink {
+            platform: SocialPlatform::Twitch,
+            url: "coolusername".to_string(),
+            label: None,
+        }];
+        assert!(req.validate().is_err());
     }
 
     #[test]
