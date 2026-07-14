@@ -8,6 +8,7 @@ import {
   QR3MF_LIMITS,
 } from '../lib/qr3mf'
 import { useOverlayClose } from '../hooks/useOverlayClose'
+import { LazyLoadErrorBoundary } from './LazyLoadErrorBoundary'
 
 // Loaded on demand: the preview pulls in three.js, which shouldn't weigh
 // down the edit page for users who never open this modal.
@@ -152,25 +153,27 @@ export function Print3DModal({ profileId, isOpen, onClose }: Print3DModalProps) 
         <div className="md:flex md:items-start md:gap-6">
           {/* Live preview */}
           <div className="md:sticky md:top-0 md:w-64 md:shrink-0 lg:w-72">
-            <Suspense
-              fallback={
-                <div
-                  className="aspect-square w-full animate-pulse rounded-lg bg-gray-100"
-                  aria-hidden="true"
+            <LazyLoadErrorBoundary>
+              <Suspense
+                fallback={
+                  <div
+                    className="aspect-square w-full animate-pulse rounded-lg bg-gray-100"
+                    aria-hidden="true"
+                  />
+                }
+              >
+                <Print3DPreview
+                  profileUrl={profileUrl}
+                  options={{
+                    sizeMm,
+                    thicknessMm,
+                    lanyardLoop,
+                    quietZoneComponents,
+                    reliefMm,
+                  }}
                 />
-              }
-            >
-              <Print3DPreview
-                profileUrl={profileUrl}
-                options={{
-                  sizeMm,
-                  thicknessMm,
-                  lanyardLoop,
-                  quietZoneComponents,
-                  reliefMm,
-                }}
-              />
-            </Suspense>
+              </Suspense>
+            </LazyLoadErrorBoundary>
           </div>
 
           <div className="mt-4 md:mt-0 md:min-w-0 md:flex-1">

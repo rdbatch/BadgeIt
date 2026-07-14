@@ -321,10 +321,19 @@ export class FrontendStack extends cdk.Stack {
     // Hashed assets (JS/CSS/images) get long-lived, immutable caching since
     // their filenames change on every build. index.html and config.json are
     // excluded here and deployed separately below with no-cache headers.
+    //
+    // prune: false keeps the previous build's hashed assets in the bucket.
+    // A tab left open across a deploy still references old chunk filenames
+    // (e.g. the lazily-loaded Print3DPreview chunk); pruning them would 404,
+    // and CloudFront's SPA fallback would serve index.html as text/html —
+    // crashing the lazy import. Retaining them lets those tabs keep working.
+    // The files are immutable and content-hashed, so leftovers are harmless;
+    // if they ever need trimming, the bucket's lifecycle can age them out.
     new s3deploy.BucketDeployment(this, "DeployFrontend", {
       sources: [s3deploy.Source.asset(path.join(__dirname, "../../frontend/dist"))],
       destinationBucket: siteBucket,
       exclude: ["index.html", "config.json"],
+      prune: false,
       cacheControl: [
         s3deploy.CacheControl.setPublic(),
         s3deploy.CacheControl.maxAge(cdk.Duration.days(365)),
