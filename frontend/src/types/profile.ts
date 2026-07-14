@@ -9,6 +9,8 @@ export type SocialPlatform =
   | 'bluesky'
   | 'website'
   | 'calendar'
+  | 'discord'
+  | 'twitch'
   | 'custom'
 
 /** A single social link entry */

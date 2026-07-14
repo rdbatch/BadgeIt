@@ -21,6 +21,7 @@ import { DEFAULT_CUSTOM_THEME_COLORS, type CustomThemeColors, type SocialLink, t
 const SOCIAL_PLATFORMS: SocialPlatform[] = [
   'custom', 'linkedin', 'github', 'instagram', 'youtube',
   'mastodon', 'bluesky', 'website', 'calendar', 'twitter',
+  'discord', 'twitch',
 ]
 
 export function EditProfilePage() {

@@ -10,6 +10,8 @@ import {
   PersonIcon,
   CalendarIcon,
   GlobeIcon,
+  DiscordIcon,
+  TwitchIcon,
   type IconProps,
 } from '../components/SocialIcons'
 
@@ -23,6 +25,8 @@ const platformIcons: Record<SocialPlatform, React.ComponentType<IconProps>> = {
   bluesky: BlueskyIcon,
   website: PersonIcon,
   calendar: CalendarIcon,
+  discord: DiscordIcon,
+  twitch: TwitchIcon,
   custom: GlobeIcon,
 }
 
@@ -36,6 +40,8 @@ const platformLabels: Record<SocialPlatform, string> = {
   bluesky: 'Bluesky',
   website: 'Personal Website',
   calendar: 'Calendar',
+  discord: 'Discord',
+  twitch: 'Twitch',
   custom: 'Link',
 }
 
@@ -49,6 +55,8 @@ const platformPlaceholders: Record<SocialPlatform, string> = {
   bluesky: 'you.bsky.social',
   website: 'yoursite.com',
   calendar: 'cal.com/you',
+  discord: 'discord.gg/yourinvite',
+  twitch: 'twitch.tv/you',
   custom: 'example.com',
 }
 

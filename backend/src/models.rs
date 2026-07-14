@@ -67,6 +67,8 @@ pub enum SocialPlatform {
     Bluesky,
     Website,
     Calendar,
+    Discord,
+    Twitch,
     Custom,
 }
 
