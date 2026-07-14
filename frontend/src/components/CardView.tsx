@@ -9,6 +9,11 @@ import { buildVCard, downloadVCardFile, fetchImageAsVCardPhoto } from '../lib/vc
 import { useAuth } from '../auth'
 import { getRuntimeConfig } from '../config/runtimeConfig'
 
+/** Strips the protocol and trailing slash so a URL reads cleanly as link text. */
+function formatUrlForDisplay(url: string): string {
+  return url.replace(/^https?:\/\//i, '').replace(/\/$/, '')
+}
+
 interface CardViewProps {
   profile: Profile
   /**
@@ -172,7 +177,10 @@ export function CardView({ profile, profileId }: CardViewProps) {
           <nav aria-label="Social links" className="space-y-2">
             {profile.links.map((link, index) => {
               const Icon = getPlatformIcon(link.platform)
-              const label = link.label ?? getPlatformLabel(link.platform)
+              const isGenericLink = link.platform === 'website' || link.platform === 'custom'
+              const label =
+                link.label ??
+                (isGenericLink ? formatUrlForDisplay(link.url) : getPlatformLabel(link.platform))
 
               return (
                 <a
