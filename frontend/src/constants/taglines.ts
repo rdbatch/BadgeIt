@@ -21,7 +21,7 @@ export const TAGLINES: readonly string[] = [
   "Stop filling your camera roll with other people's badges",
   "Remembers who you met so you don't have to",
   'The business card for people who lose business cards',
-  'Less fumbling with apps, more connecting',
+  'Less fumbling with apps, more connecting with people',
   "Your conference badge's better half",
   "'What if I could 3D print my profile QR code' as a Service"
 ]
