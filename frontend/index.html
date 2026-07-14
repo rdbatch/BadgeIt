@@ -10,17 +10,24 @@
       QR-composite image) are served by the backend's /__og/profile/{id}
       route, but only to User-Agents the CloudFront crawler function
       recognizes — anything else (unknown bots, OG debugger sites) lands
-      here, and these generic tags beat unfurling with nothing. No og:image:
-      it requires an absolute URL, and this file is environment-agnostic
-      (same build deploys to dev and prod domains).
+      here, and these generic tags beat unfurling with nothing.
+
+      og:image/twitter:image need an absolute URL, but this file is
+      environment-agnostic (same build deploys to dev and prod domains) — so
+      __SITE_URL__ is a literal placeholder token, resolved by a sed step the
+      deploy scripts/workflow run against dist/index.html after build (see
+      scripts/deploy-dev.sh, scripts/deploy-prod.sh, .github/workflows/deploy.yml).
+      It's harmless left unresolved in local dev (npm run dev / dev:mock).
     -->
     <meta property="og:site_name" content="BadgeIt" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="BadgeIt" />
     <meta property="og:description" content="Your digital business card — share your info with a QR code." />
-    <meta name="twitter:card" content="summary" />
+    <meta property="og:image" content="__SITE_URL__/og-image.png" />
+    <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="BadgeIt" />
     <meta name="twitter:description" content="Your digital business card — share your info with a QR code." />
+    <meta name="twitter:image" content="__SITE_URL__/og-image.png" />
     <script>
       // Paints the right background before React mounts, so a full page
       // load/refresh doesn't flash light before switching to the stored

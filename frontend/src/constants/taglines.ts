@@ -4,8 +4,8 @@
  * below) — don't rely on array order elsewhere.
  */
 export const TAGLINES: readonly string[] = [
-  'Badge + widget = BadgeIt',
-  'Your conference badge widget',
+  'Badge + Widget = BadgeIt',
+  'The conference badge widget that connects people',
   'Your lightweight digital business card',
   'Business cards are so 2005',
   "The last business card you'll ever need",

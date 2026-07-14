@@ -92,6 +92,14 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+      - name: Fill in og:image absolute URL
+        working-directory: frontend
+        # index.html's og:image/twitter:image use a __SITE_URL__ placeholder
+        # (see comment in frontend/index.html) since the build itself is
+        # environment-agnostic — fill it in now that we know this deploy's
+        # domain.
+        run: sed -i.bak "s#__SITE_URL__#https://${{ vars.DOMAIN_NAME }}#g" dist/index.html && rm -f dist/index.html.bak
+
       - name: Install infra dependencies
         working-directory: infra
         run: npm ci
