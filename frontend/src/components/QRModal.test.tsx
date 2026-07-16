@@ -185,7 +185,7 @@ describe('QRModal', () => {
   describe('download', () => {
     it('renders download button', () => {
       render(<QRModal {...defaultProps} />)
-      expect(screen.getByText('Download as PNG')).toBeInTheDocument()
+      expect(screen.getByText('Download QR')).toBeInTheDocument()
     })
 
     it('download button calls canvas export pipeline', async () => {
@@ -230,7 +230,7 @@ describe('QRModal', () => {
       })
 
       render(<QRModal {...defaultProps} />)
-      await user.click(screen.getByText('Download as PNG'))
+      await user.click(screen.getByText('Download QR'))
 
       // Trigger the QR image onload
       expect(imageInstances.length).toBeGreaterThan(0)
@@ -299,7 +299,7 @@ describe('QRModal', () => {
       render(
         <QRModal {...defaultProps} imageUrl="/images/abc123" />,
       )
-      await user.click(screen.getByText('Download as PNG'))
+      await user.click(screen.getByText('Download QR'))
 
       // First Image is the QR code SVG
       expect(imageInstances.length).toBe(1)
