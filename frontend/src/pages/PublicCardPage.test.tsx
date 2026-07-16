@@ -84,8 +84,8 @@ describe('PublicCardPage', () => {
     })
 
     const card = screen.getByTestId('card-view')
-    expect(card.style.getPropertyValue('--badgeit-bg')).toBe('#111111')
-    expect(card.style.getPropertyValue('--badgeit-text-muted')).toBe('#333333')
+    expect(card.style.getPropertyValue('--badgetag-bg')).toBe('#111111')
+    expect(card.style.getPropertyValue('--badgetag-text-muted')).toBe('#333333')
   })
 
   it('shows the not-found state on a 404', async () => {

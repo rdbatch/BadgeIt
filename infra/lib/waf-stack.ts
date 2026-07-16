@@ -48,18 +48,18 @@ export class WafStack extends cdk.Stack {
       visibilityConfig: {
         sampledRequestsEnabled: true,
         cloudWatchMetricsEnabled: true,
-        metricName: `badgeit-${environment}-${metricSuffix}`,
+        metricName: `badgetag-${environment}-${metricSuffix}`,
       },
     });
 
     this.webAcl = new wafv2.CfnWebACL(this, "WebAcl", {
-      name: `badgeit-${environment}`,
+      name: `badgetag-${environment}`,
       scope: "CLOUDFRONT",
       defaultAction: { allow: {} },
       visibilityConfig: {
         sampledRequestsEnabled: true,
         cloudWatchMetricsEnabled: true,
-        metricName: `badgeit-${environment}`,
+        metricName: `badgetag-${environment}`,
       },
       rules: [
         managedRule("AWSManagedRulesCommonRuleSet", 0, "core-rule-set", [
@@ -85,7 +85,7 @@ export class WafStack extends cdk.Stack {
           visibilityConfig: {
             sampledRequestsEnabled: true,
             cloudWatchMetricsEnabled: true,
-            metricName: `badgeit-${environment}-rate-limit`,
+            metricName: `badgetag-${environment}-rate-limit`,
           },
         },
       ],

@@ -33,23 +33,23 @@ function synthFrontendStack(
   > = {},
 ) {
   new DataStack(app, `${id}Data`, {
-    tags: { project: "badgeit", environment: "test" },
+    tags: { project: "badgetag", environment: "test" },
     env,
   });
   const authStack = new AuthStack(app, `${id}Auth`, {
-    tags: { project: "badgeit", environment: "test" },
-    sesDomainName: "test.badgeit.app",
-    passkeyRelyingPartyId: "test.badgeit.app",
+    tags: { project: "badgetag", environment: "test" },
+    sesDomainName: "test.badgetag.me",
+    passkeyRelyingPartyId: "test.badgetag.me",
     env,
   });
   const apiStack = new ApiStack(app, `${id}Api`, {
-    tags: { project: "badgeit", environment: "test" },
+    tags: { project: "badgetag", environment: "test" },
     environment: "test",
     env,
   });
   apiStack.addDependency(authStack);
   const stack = new FrontendStack(app, id, {
-    tags: { project: "badgeit", environment: "test" },
+    tags: { project: "badgetag", environment: "test" },
     environment: "test",
     env,
     ...overrides,
@@ -318,7 +318,7 @@ describe("FrontendStack", () => {
       const app = new cdk.App({ context: { environment: "test" } });
       const env = { account: "123456789012", region: "us-east-1" };
       const stack = synthFrontendStack(app, "TestFrontendDomainStack", env, {
-        domainNames: ["badgeit.example.com"],
+        domainNames: ["badgetag.example.com"],
         certificateArn:
           "arn:aws:acm:us-east-1:123456789012:certificate/test-cert-id",
       });
@@ -328,7 +328,7 @@ describe("FrontendStack", () => {
     test("distribution uses the configured domain as an alias", () => {
       domainTemplate.hasResourceProperties("AWS::CloudFront::Distribution", {
         DistributionConfig: Match.objectLike({
-          Aliases: ["badgeit.example.com"],
+          Aliases: ["badgetag.example.com"],
         }),
       });
     });
@@ -346,7 +346,7 @@ describe("FrontendStack", () => {
 
     test("DistributionUrl output uses the custom domain", () => {
       domainTemplate.hasOutput("DistributionUrl", {
-        Value: "https://badgeit.example.com",
+        Value: "https://badgetag.example.com",
       });
     });
 
@@ -355,9 +355,9 @@ describe("FrontendStack", () => {
       expect(
         () =>
           new FrontendStack(app, "TestFrontendMissingCertStack", {
-            tags: { project: "badgeit", environment: "test" },
+            tags: { project: "badgetag", environment: "test" },
             environment: "test",
-            domainNames: ["badgeit.example.com"],
+            domainNames: ["badgetag.example.com"],
           }),
       ).toThrow(/certificateArn is required/);
     });

@@ -53,7 +53,7 @@ export interface VCardPhoto {
  * can save the card owner directly to their phone's contacts.
  */
 export function buildVCard(profile: Profile, photo?: VCardPhoto): string {
-  const name = profile.displayName?.trim() || 'BadgeIt Contact'
+  const name = profile.displayName?.trim() || 'BadgeTag Contact'
   const { family, given } = splitName(name)
 
   const lines: string[] = ['BEGIN:VCARD', 'VERSION:3.0']

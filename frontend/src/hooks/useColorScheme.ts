@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-const COLOR_SCHEME_KEY = 'badgeit-color-scheme'
+const COLOR_SCHEME_KEY = 'badgetag-color-scheme'
 
 export type ColorScheme = 'light' | 'dark'
 

@@ -53,9 +53,9 @@ export interface AuthSession {
   email: string
 }
 
-const SESSION_KEY = 'badgeit-auth-session'
-const CHALLENGE_SESSION_KEY = 'badgeit-challenge-session'
-const AUTH_MODE_KEY = 'badgeit-auth-mode'
+const SESSION_KEY = 'badgetag-auth-session'
+const CHALLENGE_SESSION_KEY = 'badgetag-challenge-session'
+const AUTH_MODE_KEY = 'badgetag-auth-mode'
 
 /**
  * How long before actual expiry we proactively refresh, to avoid a request

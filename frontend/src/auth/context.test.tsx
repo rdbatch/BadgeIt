@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { AuthProvider, useAuth } from './index'
 import * as service from './service'
 
-const SESSION_KEY = 'badgeit-auth-session'
+const SESSION_KEY = 'badgetag-auth-session'
 
 function seedSession(expiresInMs: number) {
   localStorage.setItem(

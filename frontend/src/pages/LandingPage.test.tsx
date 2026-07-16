@@ -3,8 +3,8 @@ import { createMemoryRouter, RouterProvider } from 'react-router'
 import { AuthProvider } from '../auth'
 import { LandingPage } from './LandingPage'
 
-const SESSION_KEY = 'badgeit-auth-session'
-const COLOR_SCHEME_KEY = 'badgeit-color-scheme'
+const SESSION_KEY = 'badgetag-auth-session'
+const COLOR_SCHEME_KEY = 'badgetag-color-scheme'
 
 function stubMatchMedia(prefersDark: boolean) {
   vi.stubGlobal(
@@ -37,7 +37,7 @@ function renderLandingPage() {
 describe('LandingPage', () => {
   it('links to the about page', () => {
     renderLandingPage()
-    expect(screen.getByRole('link', { name: 'About BadgeIt' })).toHaveAttribute('href', '/about')
+    expect(screen.getByRole('link', { name: 'About BadgeTag' })).toHaveAttribute('href', '/about')
   })
 })
 

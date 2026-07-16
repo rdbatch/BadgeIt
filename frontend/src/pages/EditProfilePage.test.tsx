@@ -3,7 +3,7 @@ import { createMemoryRouter, RouterProvider } from 'react-router'
 import { AuthProvider } from '../auth'
 import { EditProfilePage } from './EditProfilePage'
 
-const SESSION_KEY = 'badgeit-auth-session'
+const SESSION_KEY = 'badgetag-auth-session'
 
 function seedSession() {
   localStorage.setItem(
@@ -839,7 +839,7 @@ describe('EditProfilePage custom theme', () => {
 
     // Applying selects the custom theme immediately.
     const main = screen.getByText('Edit Your Card').closest('main')
-    expect(main).toHaveClass('[background-color:var(--badgeit-bg)]')
+    expect(main).toHaveClass('[background-color:var(--badgetag-bg)]')
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
@@ -877,7 +877,7 @@ describe('EditProfilePage custom theme', () => {
 
     await waitFor(() => {
       const main = screen.getByText('Edit Your Card').closest('main')
-      expect(main).toHaveClass('[background-color:var(--badgeit-bg)]')
+      expect(main).toHaveClass('[background-color:var(--badgetag-bg)]')
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Choose custom theme colors' }))

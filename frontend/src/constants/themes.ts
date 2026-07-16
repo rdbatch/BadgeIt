@@ -81,10 +81,10 @@ export const themes: Record<ThemeId, ThemeConfig> = {
     // colors — the actual hex values are supplied at runtime via an inline
     // `style` on a shared ancestor (see getCustomThemeStyle), since
     // Tailwind can't generate classes for colors only known at runtime.
-    bg: '[background-color:var(--badgeit-bg)]',
-    text: '[color:var(--badgeit-text)]',
-    textMuted: '[color:var(--badgeit-text-muted)]',
-    accent: '[color:var(--badgeit-accent)]',
+    bg: '[background-color:var(--badgetag-bg)]',
+    text: '[color:var(--badgetag-text)]',
+    textMuted: '[color:var(--badgetag-text-muted)]',
+    accent: '[color:var(--badgetag-accent)]',
   },
 }
 
@@ -107,7 +107,7 @@ export function getTheme(id: ThemeId): ThemeConfig {
   return themes[id]
 }
 
-const CACHED_PROFILE_THEME_KEY = 'badgeit-last-theme'
+const CACHED_PROFILE_THEME_KEY = 'badgetag-last-theme'
 
 interface CachedProfileTheme {
   theme: ThemeId
@@ -149,9 +149,9 @@ export function getCustomThemeStyle(
 
   const colors: CustomThemeColors = profile.customTheme
   return {
-    '--badgeit-bg': colors.bg,
-    '--badgeit-text': colors.text,
-    '--badgeit-text-muted': colors.textMuted,
-    '--badgeit-accent': colors.accent,
+    '--badgetag-bg': colors.bg,
+    '--badgetag-text': colors.text,
+    '--badgetag-text-muted': colors.textMuted,
+    '--badgetag-accent': colors.accent,
   } as CSSProperties
 }

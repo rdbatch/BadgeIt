@@ -21,7 +21,7 @@ if (!region) {
 }
 
 const commonTags = {
-  project: "badgeit",
+  project: "badgetag",
   environment,
 };
 
@@ -49,16 +49,16 @@ const siteUrl = domainNames?.[0] ? `https://${domainNames[0]}` : undefined;
 if (!domainNames?.[0]) {
   throw new Error(
     'CDK context "domainName" is required to configure the passkey relying party ID. Pass it via: --context domainName=<domain>\n' +
-      "Example: npx cdk deploy --context domainName=dev.badgeit.app --context region=us-west-2 --context environment=dev",
+      "Example: npx cdk deploy --context domainName=dev.badgetag.me --context region=us-west-2 --context environment=dev",
   );
 }
 
-const dataStack = new DataStack(app, `BadgeIt-Data-${environment}`, {
+const dataStack = new DataStack(app, `BadgeTag-Data-${environment}`, {
   tags: commonTags,
   env: stackEnv,
 });
 
-const authStack = new AuthStack(app, `BadgeIt-Auth-${environment}`, {
+const authStack = new AuthStack(app, `BadgeTag-Auth-${environment}`, {
   tags: commonTags,
   env: stackEnv,
   // Each environment sends from its own (sub)domain so SES sending
@@ -67,11 +67,11 @@ const authStack = new AuthStack(app, `BadgeIt-Auth-${environment}`, {
   // --context sesDomainName=<domain> if needed (e.g. a PR/preview env).
   sesDomainName:
     (app.node.tryGetContext("sesDomainName") as string | undefined) ??
-    (environment === "prod" ? "badgeit.app" : `${environment}.badgeit.app`),
+    (environment === "prod" ? "badgetag.me" : `${environment}.badgetag.me`),
   passkeyRelyingPartyId: domainNames[0],
 });
 
-const apiStack = new ApiStack(app, `BadgeIt-Api-${environment}`, {
+const apiStack = new ApiStack(app, `BadgeTag-Api-${environment}`, {
   tags: commonTags,
   env: stackEnv,
   environment,
@@ -100,24 +100,24 @@ apiStack.addDependency(authStack);
 // stack and FrontendStack below) makes CDK wire up the plumbing needed for
 // FrontendStack to reference `webAcl.attrArn` even when it deploys to a
 // different region.
-const wafStack = new WafStack(app, `BadgeIt-Waf-${environment}`, {
+const wafStack = new WafStack(app, `BadgeTag-Waf-${environment}`, {
   tags: commonTags,
   env: { region: "us-east-1", account: stackEnv.account },
   crossRegionReferences: true,
   environment,
 });
 
-const frontendStack = new FrontendStack(app, `BadgeIt-Frontend-${environment}`, {
+const frontendStack = new FrontendStack(app, `BadgeTag-Frontend-${environment}`, {
   tags: commonTags,
   env: stackEnv,
   crossRegionReferences: true,
   environment,
   // Custom domain — unset until a domain is registered and an ACM
   // certificate (in us-east-1) is provisioned for it. Once ready:
-  //   cdk deploy BadgeIt-Frontend-<env> \
-  //     --context domainName=badgeit.com \
+  //   cdk deploy BadgeTag-Frontend-<env> \
+  //     --context domainName=badgetag.me \
   //     --context certificateArn=arn:aws:acm:us-east-1:<account>:certificate/<id>
-  // domainName may be a comma-separated list (e.g. "badgeit.com,www.badgeit.com").
+  // domainName may be a comma-separated list (e.g. "badgetag.me,www.badgetag.me").
   domainNames,
   certificateArn: app.node.tryGetContext("certificateArn") as string | undefined,
   webAclArn: wafStack.webAcl.attrArn,
@@ -130,7 +130,7 @@ const frontendStack = new FrontendStack(app, `BadgeIt-Frontend-${environment}`, 
 frontendStack.addDependency(apiStack);
 frontendStack.addDependency(dataStack);
 
-const monitoringStack = new MonitoringStack(app, `BadgeIt-Monitoring-${environment}`, {
+const monitoringStack = new MonitoringStack(app, `BadgeTag-Monitoring-${environment}`, {
   tags: commonTags,
   env: stackEnv,
   environment,

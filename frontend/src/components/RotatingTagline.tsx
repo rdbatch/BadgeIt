@@ -22,7 +22,7 @@ interface TaglineState {
 }
 
 /**
- * Tagline under the BadgeIt header, rotating every 3s. Always shows
+ * Tagline under the BadgeTag header, rotating every 3s. Always shows
  * FIRST_TAGLINE first; after that, cycles a reshuffling random queue of all
  * taglines (FIRST_TAGLINE included as an eligible repeat) indefinitely.
  */

@@ -1,14 +1,14 @@
 <div align="center">
-  <img src="docs/assets/logo.svg" width="120" height="120" alt="BadgeIt logo" />
+  <img src="docs/assets/logo.svg" width="120" height="120" alt="BadgeTag logo" />
 
-  # BadgeIt
+  # BadgeTag
 
   A lightweight digital business card. Sign in, build a themeable profile with your social links, and share it instantly via a link or QR code.
 </div>
 
 ## What it does
 
-BadgeIt gives you a personal profile page (`/p/:id`) with your name, bio, social
+BadgeTag gives you a personal profile page (`/p/:id`) with your name, bio, social
 links, and a pick of color themes. Sign in with a passwordless, email-code flow,
 edit your card, and share it with a scannable QR code (perfect for networking at conferences)!
 

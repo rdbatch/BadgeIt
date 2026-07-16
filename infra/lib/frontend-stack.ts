@@ -17,7 +17,7 @@ import { apiStackParamPaths } from "./api-stack";
  * reference to FrontendStack — see the rationale on `apiStackParamPaths`.
  */
 export function frontendStackParamPaths(environment: string) {
-  const base = `/badgeit/${environment}/frontend`;
+  const base = `/badgetag/${environment}/frontend`;
   return {
     distributionId: `${base}/distribution-id`,
   };
@@ -33,8 +33,8 @@ export interface FrontendStackProps extends cdk.StackProps {
    */
   readonly environment: string;
   /**
-   * Custom domain name(s) to serve the site on (e.g. "badgeit.com" or
-   * ["badgeit.com", "www.badgeit.com"]). Leave unset to use the default
+   * Custom domain name(s) to serve the site on (e.g. "badgetag.me" or
+   * ["badgetag.me", "www.badgetag.me"]). Leave unset to use the default
    * CloudFront domain (*.cloudfront.net) — useful for testing before a
    * domain is registered.
    *
@@ -116,8 +116,8 @@ class OacS3Origin extends cloudfront.OriginBase {
  *   1. Register the domain and provision an ACM certificate for it in
  *      us-east-1 (DNS validation required — see AWS docs).
  *   2. Redeploy with:
- *      cdk deploy BadgeIt-Frontend-<env> \
- *        --context domainName=badgeit.com \
+ *      cdk deploy BadgeTag-Frontend-<env> \
+ *        --context domainName=badgetag.me \
  *        --context certificateArn=arn:aws:acm:us-east-1:<account>:certificate/<id>
  *   3. Point the domain's DNS (e.g. a Route53 alias record, or a CNAME at
  *      your registrar) at the distribution's domain name.
@@ -200,7 +200,7 @@ export class FrontendStack extends cdk.Stack {
       "ImageOriginAccessControl",
       {
         originAccessControlConfig: {
-          name: `badgeit-image-oac-${this.node.tryGetContext("environment") ?? "dev"}`,
+          name: `badgetag-image-oac-${this.node.tryGetContext("environment") ?? "dev"}`,
           originAccessControlOriginType: "s3",
           signingBehavior: "always",
           signingProtocol: "sigv4",

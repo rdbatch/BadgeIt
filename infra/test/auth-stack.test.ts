@@ -8,9 +8,9 @@ describe("AuthStack", () => {
   beforeAll(() => {
     const app = new cdk.App({ context: { environment: "test" } });
     const stack = new AuthStack(app, "TestAuthStack", {
-      tags: { project: "badgeit", environment: "test" },
-      sesDomainName: "test.badgeit.app",
-      passkeyRelyingPartyId: "test.badgeit.app",
+      tags: { project: "badgetag", environment: "test" },
+      sesDomainName: "test.badgetag.me",
+      passkeyRelyingPartyId: "test.badgetag.me",
     });
     template = Template.fromStack(stack);
   });
@@ -43,7 +43,7 @@ describe("AuthStack", () => {
 
     test("configures the passkey relying party ID and user verification", () => {
       template.hasResourceProperties("AWS::Cognito::UserPool", {
-        WebAuthnRelyingPartyID: "test.badgeit.app",
+        WebAuthnRelyingPartyID: "test.badgetag.me",
         WebAuthnUserVerification: "preferred",
       });
     });
@@ -106,14 +106,14 @@ describe("AuthStack", () => {
   describe("SSM Parameters", () => {
     test("publishes user pool ID to SSM", () => {
       template.hasResourceProperties("AWS::SSM::Parameter", {
-        Name: "/badgeit/test/auth/user-pool-id",
+        Name: "/badgetag/test/auth/user-pool-id",
         Type: "String",
       });
     });
 
     test("publishes user pool client ID to SSM", () => {
       template.hasResourceProperties("AWS::SSM::Parameter", {
-        Name: "/badgeit/test/auth/user-pool-client-id",
+        Name: "/badgetag/test/auth/user-pool-client-id",
         Type: "String",
       });
     });
@@ -130,24 +130,22 @@ describe("AuthStack", () => {
 
     test("has an SES from address output with no CloudFormation export", () => {
       template.hasOutput("SesFromAddress", {
-        Value: "noreply@test.badgeit.app",
+        Value: "noreply@test.badgetag.me",
         Export: Match.absent(),
       });
     });
   });
 
   describe("SES Email Identity", () => {
-    test("creates a domain identity for the configured SES domain", () => {
-      template.hasResourceProperties("AWS::SES::EmailIdentity", {
-        EmailIdentity: "test.badgeit.app",
-      });
+    test("does not manage the SES domain identity in this stack (created manually for now)", () => {
+      template.resourceCountIs("AWS::SES::EmailIdentity", 0);
     });
 
     test("configures the User Pool to send email via SES with the domain-based from address", () => {
       template.hasResourceProperties("AWS::Cognito::UserPool", {
         EmailConfiguration: {
           EmailSendingAccount: "DEVELOPER",
-          From: "BadgeIt <noreply@test.badgeit.app>",
+          From: "BadgeTag <noreply@test.badgetag.me>",
         },
       });
     });

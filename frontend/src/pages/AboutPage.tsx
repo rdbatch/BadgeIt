@@ -16,7 +16,7 @@ import logo from '../assets/logo.svg'
 import type { CustomThemeColors, ThemeId } from '../types/profile'
 
 /**
- * Static "what is BadgeIt" page. Content below is intentionally simple
+ * Static "what is BadgeTag" page. Content below is intentionally simple
  * prose — free to rewrite without touching AboutPage.test.tsx, which only
  * covers the back button's behavior and the theme-switching functionality.
  */
@@ -113,33 +113,33 @@ export function AboutPage() {
           Back
         </button>
 
-        <h1 className={`mt-6 text-2xl font-bold ${activeTheme.text}`}>About BadgeIt</h1>
+        <h1 className={`mt-6 text-2xl font-bold ${activeTheme.text}`}>About BadgeTag</h1>
 
         <div className="mt-4 flex justify-center">
-          <img src={logo} alt="BadgeIt logo" width={120} height={120} />
+          <img src={logo} alt="BadgeTag logo" width={120} height={120} />
         </div>
 
         <div className={`mt-4 space-y-4 ${activeTheme.textMuted}`}>
           <p>
-            BadgeIt (Badge + Widget) was created after fumbling around with trying to connect on social platforms or take pictures of badges at a conference.
+            BadgeTag was created after fumbling around with trying to connect on social platforms or take pictures of badges at a conference.
             It is a lightweight digital business card that makes it easy to make scannable codes to keep with your conference badge so that next connection is just a scan away.
             Create a profile with your name, contact details, and social links, then share it instantly
             — no app required for the person you're sharing it with.
           </p>
           <p>
-            When you meet someone in person who's also using BadgeIt, you can quickly save their card as a connection so you never lose
+            When you meet someone in person who's also using BadgeTag, you can quickly save their card as a connection so you never lose
             track of who you talked to, what you discussed, or which event you met them at.
           </p>
           <p>
             Built by{' '}
             <a
-              href="https://badgeit.app/@rdbatch"
+              href="https://badgetag.me/@rdbatch"
               className={`underline underline-offset-2 transition-opacity hover:opacity-80 ${activeTheme.accent}`}
             >
               Ryan Batchelder
             </a>
             , who spent way more time trying to figure out how to generate a QR code in a popular professional social network app than he'd like to admit.
-            With BadgeIt, he hopes no one ever has to worry about that again.
+            With BadgeTag, he hopes no one ever has to worry about that again.
           </p>
         </div>
       </div>

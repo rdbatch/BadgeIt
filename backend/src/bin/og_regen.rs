@@ -15,7 +15,7 @@ use lambda_runtime::{Error, LambdaEvent, service_fn};
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::EnvFilter;
 
-use badgeit_backend::store::ProfileStore;
+use badgetag_backend::store::ProfileStore;
 
 #[derive(Deserialize)]
 #[serde(tag = "action")]

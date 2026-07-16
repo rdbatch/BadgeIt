@@ -15,19 +15,19 @@ describe("ApiStack", () => {
     // derived from the "test" environment; ApiStack reads them back the
     // same way it would in a real, separately-deployed stack.
     new DataStack(app, "TestDataStack", {
-      tags: { project: "badgeit", environment: "test" },
+      tags: { project: "badgetag", environment: "test" },
       env,
     });
 
     new AuthStack(app, "TestAuthStack", {
-      tags: { project: "badgeit", environment: "test" },
-      sesDomainName: "test.badgeit.app",
-      passkeyRelyingPartyId: "test.badgeit.app",
+      tags: { project: "badgetag", environment: "test" },
+      sesDomainName: "test.badgetag.me",
+      passkeyRelyingPartyId: "test.badgetag.me",
       env,
     });
 
     const apiStack = new ApiStack(app, "TestApiStack", {
-      tags: { project: "badgeit", environment: "test" },
+      tags: { project: "badgetag", environment: "test" },
       env,
       environment: "test",
     });
@@ -38,7 +38,7 @@ describe("ApiStack", () => {
   describe("Lambda Function", () => {
     test("creates a Lambda with ARM64 and provided.al2023 runtime", () => {
       template.hasResourceProperties("AWS::Lambda::Function", {
-        FunctionName: "badgeit-api-test",
+        FunctionName: "badgetag-api-test",
         Architectures: ["arm64"],
         Runtime: "provided.al2023",
       });
@@ -116,7 +116,7 @@ describe("ApiStack", () => {
   describe("HTTP API Gateway", () => {
     test("creates an HTTP API", () => {
       template.hasResourceProperties("AWS::ApiGatewayV2::Api", {
-        Name: "badgeit-api-test",
+        Name: "badgetag-api-test",
         ProtocolType: "HTTP",
       });
     });
@@ -200,19 +200,19 @@ describe("ApiStack", () => {
 
     test("publishes the API id, Lambda function name, and log group name to SSM for MonitoringStack to consume", () => {
       template.hasResourceProperties("AWS::SSM::Parameter", {
-        Name: "/badgeit/test/api/api-id",
+        Name: "/badgetag/test/api/api-id",
       });
       template.hasResourceProperties("AWS::SSM::Parameter", {
-        Name: "/badgeit/test/api/function-name",
+        Name: "/badgetag/test/api/function-name",
       });
       template.hasResourceProperties("AWS::SSM::Parameter", {
-        Name: "/badgeit/test/api/log-group-name",
+        Name: "/badgetag/test/api/log-group-name",
       });
     });
 
     test("creates an alarm on Lambda errors", () => {
       template.hasResourceProperties("AWS::CloudWatch::Alarm", {
-        AlarmName: "badgeit-api-test-lambda-errors",
+        AlarmName: "badgetag-api-test-lambda-errors",
         Namespace: "AWS/Lambda",
         MetricName: "Errors",
         Threshold: 5,
@@ -221,7 +221,7 @@ describe("ApiStack", () => {
 
     test("creates an alarm on Lambda p99 duration", () => {
       template.hasResourceProperties("AWS::CloudWatch::Alarm", {
-        AlarmName: "badgeit-api-test-lambda-p99-duration",
+        AlarmName: "badgetag-api-test-lambda-p99-duration",
         Namespace: "AWS/Lambda",
         MetricName: "Duration",
         ExtendedStatistic: "p99",
@@ -230,14 +230,14 @@ describe("ApiStack", () => {
 
     test("creates an alarm on API Gateway 5xx responses", () => {
       template.hasResourceProperties("AWS::CloudWatch::Alarm", {
-        AlarmName: "badgeit-api-test-5xx",
+        AlarmName: "badgetag-api-test-5xx",
         Namespace: "AWS/ApiGateway",
       });
     });
 
     test("creates an alarm on DynamoDB throttled requests", () => {
       template.hasResourceProperties("AWS::CloudWatch::Alarm", {
-        AlarmName: "badgeit-api-test-dynamodb-throttles",
+        AlarmName: "badgetag-api-test-dynamodb-throttles",
         Namespace: "AWS/DynamoDB",
         MetricName: "ThrottledRequests",
       });
@@ -248,7 +248,7 @@ describe("ApiStack", () => {
   describe("OG image bulk regeneration", () => {
     test("creates the og-regen Lambda with ARM64 and provided.al2023 runtime", () => {
       template.hasResourceProperties("AWS::Lambda::Function", {
-        FunctionName: "badgeit-og-regen-test",
+        FunctionName: "badgetag-og-regen-test",
         Architectures: ["arm64"],
         Runtime: "provided.al2023",
         MemorySize: 512,
@@ -262,7 +262,7 @@ describe("ApiStack", () => {
 
     test("creates the OG regen state machine", () => {
       template.hasResourceProperties("AWS::StepFunctions::StateMachine", {
-        StateMachineName: "badgeit-og-regen-test",
+        StateMachineName: "badgetag-og-regen-test",
       });
     });
 
@@ -312,26 +312,26 @@ describe("ApiStack", () => {
       const env = { account: "123456789012", region: "us-east-1" };
 
       new DataStack(app, "SiteUrlDataStack", {
-        tags: { project: "badgeit", environment: "test" },
+        tags: { project: "badgetag", environment: "test" },
         env,
       });
       new AuthStack(app, "SiteUrlAuthStack", {
-        tags: { project: "badgeit", environment: "test" },
-        sesDomainName: "test.badgeit.app",
-        passkeyRelyingPartyId: "test.badgeit.app",
+        tags: { project: "badgetag", environment: "test" },
+        sesDomainName: "test.badgetag.me",
+        passkeyRelyingPartyId: "test.badgetag.me",
         env,
       });
       const apiStack = new ApiStack(app, "SiteUrlApiStack", {
-        tags: { project: "badgeit", environment: "test" },
+        tags: { project: "badgetag", environment: "test" },
         env,
         environment: "test",
-        siteUrl: "https://badgeit.example.com",
+        siteUrl: "https://badgetag.example.com",
       });
 
       Template.fromStack(apiStack).hasResourceProperties("AWS::Lambda::Function", {
         Environment: {
           Variables: Match.objectLike({
-            SITE_URL: "https://badgeit.example.com",
+            SITE_URL: "https://badgetag.example.com",
           }),
         },
       });
@@ -341,7 +341,7 @@ describe("ApiStack", () => {
   describe("SSM Parameters", () => {
     test("publishes API URL to SSM", () => {
       template.hasResourceProperties("AWS::SSM::Parameter", {
-        Name: "/badgeit/test/api/api-url",
+        Name: "/badgetag/test/api/api-url",
         Type: "String",
       });
     });

@@ -3,10 +3,10 @@ import { getTheme, getCustomThemeStyle, themes } from './themes'
 describe('getTheme', () => {
   it('returns the custom theme entry referencing CSS custom properties', () => {
     const custom = getTheme('custom')
-    expect(custom.bg).toBe('[background-color:var(--badgeit-bg)]')
-    expect(custom.text).toBe('[color:var(--badgeit-text)]')
-    expect(custom.textMuted).toBe('[color:var(--badgeit-text-muted)]')
-    expect(custom.accent).toBe('[color:var(--badgeit-accent)]')
+    expect(custom.bg).toBe('[background-color:var(--badgetag-bg)]')
+    expect(custom.text).toBe('[color:var(--badgetag-text)]')
+    expect(custom.textMuted).toBe('[color:var(--badgetag-text-muted)]')
+    expect(custom.accent).toBe('[color:var(--badgetag-accent)]')
   })
 
   it('no longer has an amber preset', () => {
@@ -30,10 +30,10 @@ describe('getCustomThemeStyle', () => {
       customTheme: { bg: '#111111', text: '#222222', textMuted: '#333333', accent: '#444444' },
     })
     expect(style).toEqual({
-      '--badgeit-bg': '#111111',
-      '--badgeit-text': '#222222',
-      '--badgeit-text-muted': '#333333',
-      '--badgeit-accent': '#444444',
+      '--badgetag-bg': '#111111',
+      '--badgetag-text': '#222222',
+      '--badgetag-text-muted': '#333333',
+      '--badgetag-accent': '#444444',
     })
   })
 })

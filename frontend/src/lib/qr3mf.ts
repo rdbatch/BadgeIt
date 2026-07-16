@@ -334,7 +334,7 @@ export function generateQr3mf(
   const model =
     `<?xml version="1.0" encoding="UTF-8"?>` +
     `<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">` +
-    `<metadata name="Title">BadgeIt QR tag</metadata>` +
+    `<metadata name="Title">BadgeTag QR tag</metadata>` +
     `<resources>` +
     `<basematerials id="1">` +
     `<base name="Base (light)" displaycolor="#FFFFFF" />` +

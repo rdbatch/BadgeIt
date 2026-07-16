@@ -12,7 +12,7 @@
  */
 
 /** localStorage key; edits survive reloads so local testing feels real. */
-export const MOCK_STORE_KEY = 'badgeit-mock-store'
+export const MOCK_STORE_KEY = 'badgetag-mock-store'
 
 export const MOCK_ID_TOKEN = 'mock-id-token'
 const MOCK_ACCESS_TOKEN = 'mock-access-token'
@@ -173,7 +173,7 @@ function removeMockPasskey(credentialId: string | undefined): void {
 function mockCredentialCreationOptions() {
   return {
     challenge: 'bW9jay1jaGFsbGVuZ2U',
-    rp: { id: 'localhost', name: 'BadgeIt (mock)' },
+    rp: { id: 'localhost', name: 'BadgeTag (mock)' },
     user: { id: 'bW9jay11c2Vy', name: 'mock@example.com', displayName: 'Mock User' },
     pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
   }

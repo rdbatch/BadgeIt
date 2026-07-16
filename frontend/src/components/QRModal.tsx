@@ -172,7 +172,7 @@ export function QRModal({
         const url = URL.createObjectURL(blob)
         const link = document.createElement('a')
         link.href = url
-        link.download = `badgeit-${profileId}.png`
+        link.download = `badgetag-${profileId}.png`
         link.click()
         URL.revokeObjectURL(url)
       }, 'image/png')

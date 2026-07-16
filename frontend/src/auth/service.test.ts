@@ -1,6 +1,6 @@
 import { isSessionExpiring, getSession, clearSession, refreshSession, type AuthSession } from './service'
 
-const SESSION_KEY = 'badgeit-auth-session'
+const SESSION_KEY = 'badgetag-auth-session'
 
 function seedSession(overrides: Partial<AuthSession> = {}): AuthSession {
   const session: AuthSession = {

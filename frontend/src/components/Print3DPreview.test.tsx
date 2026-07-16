@@ -17,7 +17,7 @@ describe('Print3DPreview', () => {
   it('falls back gracefully when WebGL is unavailable', () => {
     render(
       <Print3DPreview
-        profileUrl="https://badgeit.app/p/abc123def456"
+        profileUrl="https://badgetag.me/p/abc123def456"
         options={OPTIONS}
       />,
     )

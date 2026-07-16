@@ -26,7 +26,7 @@ function renderWithRouter(initialEntry: string) {
 describe('Router', () => {
   it('renders the landing page at /', () => {
     renderWithRouter('/')
-    expect(screen.getByText('BadgeIt')).toBeInTheDocument()
+    expect(screen.getByText('BadgeTag')).toBeInTheDocument()
     expect(screen.getByText(TAGLINES[0])).toBeInTheDocument()
   })
 
@@ -39,7 +39,7 @@ describe('Router', () => {
   it('edit page redirects to landing when not authenticated', () => {
     renderWithRouter('/edit')
     // Should redirect to landing page since there's no auth session
-    expect(screen.getByText('BadgeIt')).toBeInTheDocument()
+    expect(screen.getByText('BadgeTag')).toBeInTheDocument()
   })
 
   it('shows loading state on public card page', () => {

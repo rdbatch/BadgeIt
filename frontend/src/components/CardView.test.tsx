@@ -228,14 +228,14 @@ describe('CardView', () => {
   })
 
   describe('footer', () => {
-    it('renders Made with BadgeIt footer', () => {
+    it('renders Made with BadgeTag footer', () => {
       render(<CardView profile={fullProfile} />)
-      expect(screen.getByText('Made with BadgeIt')).toBeInTheDocument()
+      expect(screen.getByText('Made with BadgeTag')).toBeInTheDocument()
     })
 
     it('footer links to landing page', () => {
       render(<CardView profile={fullProfile} />)
-      const footerLink = screen.getByText('Made with BadgeIt').closest('a')
+      const footerLink = screen.getByText('Made with BadgeTag').closest('a')
       expect(footerLink).toHaveAttribute('href', '/')
     })
   })
@@ -344,15 +344,15 @@ describe('CardView', () => {
       render(<CardView profile={customProfile} />)
 
       const card = screen.getByTestId('card-view')
-      expect(card).toHaveClass('[background-color:var(--badgeit-bg)]')
-      expect(card.style.getPropertyValue('--badgeit-bg')).toBe('#111111')
-      expect(card.style.getPropertyValue('--badgeit-accent')).toBe('#444444')
+      expect(card).toHaveClass('[background-color:var(--badgetag-bg)]')
+      expect(card.style.getPropertyValue('--badgetag-bg')).toBe('#111111')
+      expect(card.style.getPropertyValue('--badgetag-accent')).toBe('#444444')
     })
 
     it('does not apply custom theme styles for a preset theme', () => {
       render(<CardView profile={fullProfile} />)
       const card = screen.getByTestId('card-view')
-      expect(card.style.getPropertyValue('--badgeit-bg')).toBe('')
+      expect(card.style.getPropertyValue('--badgetag-bg')).toBe('')
     })
   })
 

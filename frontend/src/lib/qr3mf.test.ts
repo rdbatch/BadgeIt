@@ -9,7 +9,7 @@ import {
   QR3MF_LIMITS,
 } from './qr3mf'
 
-const TEST_URL = 'https://badgeit.app/p/abc123def456'
+const TEST_URL = 'https://badgetag.me/p/abc123def456'
 
 const VALID_OPTIONS = {
   sizeMm: 60,

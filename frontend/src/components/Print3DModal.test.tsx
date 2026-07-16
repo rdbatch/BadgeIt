@@ -140,7 +140,7 @@ describe('Print3DModal', () => {
       const blob = createObjectURL.mock.calls[0][0] as unknown as Blob
       expect(blob.type).toBe('model/3mf')
       expect(blob.size).toBeGreaterThan(0)
-      expect(downloadName).toBe(`badgeit-${PROFILE_ID}.3mf`)
+      expect(downloadName).toBe(`badgetag-${PROFILE_ID}.3mf`)
       expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock')
     } finally {
       clickSpy.mockRestore()

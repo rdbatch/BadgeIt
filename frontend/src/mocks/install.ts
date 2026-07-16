@@ -36,7 +36,7 @@ export function installMocks(): void {
   addMockBadge()
 
   console.info(
-    '[badgeit mock] Running against local mock data — any email and any ' +
+    '[badgetag mock] Running against local mock data — any email and any ' +
       'verification code signs in; edits persist in localStorage.',
   )
 }

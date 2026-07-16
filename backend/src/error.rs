@@ -2,7 +2,7 @@ use aws_lambda_events::apigw::ApiGatewayV2httpResponse;
 use aws_lambda_events::encodings::Body;
 use aws_lambda_events::http::HeaderMap;
 
-/// Application-level errors for the BadgeIt API.
+/// Application-level errors for the BadgeTag API.
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
     #[error("Profile not found")]

@@ -16,7 +16,7 @@ export interface MonitoringStackProps extends cdk.StackProps {
 }
 
 /**
- * MonitoringStack — the single `badgeit-{environment}` CloudWatch dashboard,
+ * MonitoringStack — the single `badgetag-{environment}` CloudWatch dashboard,
  * combining Lambda/API Gateway/DynamoDB metrics with CloudFront metrics.
  *
  * This lives in its own stack, deployed after both ApiStack and
@@ -109,7 +109,7 @@ export class MonitoringStack extends cdk.Stack {
       });
 
     const dashboard = new cloudwatch.Dashboard(this, "Dashboard", {
-      dashboardName: `badgeit-${environment}`,
+      dashboardName: `badgetag-${environment}`,
     });
 
     dashboard.addWidgets(

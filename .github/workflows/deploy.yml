@@ -54,7 +54,7 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ inputs.region }}
-          role-session-name: gha-badgeit-deploy-${{ inputs.environment }}
+          role-session-name: gha-badgetag-deploy-${{ inputs.environment }}
 
       - name: Verify caller is in the expected account
         run: |
@@ -113,10 +113,10 @@ jobs:
         # `--exclusively` deploy runs.
         run: |
           npx cdk deploy \
-            "BadgeIt-Data-${ENVIRONMENT}" \
-            "BadgeIt-Auth-${ENVIRONMENT}" \
-            "BadgeIt-Api-${ENVIRONMENT}" \
-            "BadgeIt-Waf-${ENVIRONMENT}" \
+            "BadgeTag-Data-${ENVIRONMENT}" \
+            "BadgeTag-Auth-${ENVIRONMENT}" \
+            "BadgeTag-Api-${ENVIRONMENT}" \
+            "BadgeTag-Waf-${ENVIRONMENT}" \
             --context environment="$ENVIRONMENT" \
             --context region="$REGION" \
             --context account="${{ vars.AWS_ACCOUNT_ID }}" \
@@ -128,8 +128,8 @@ jobs:
       - name: Write runtime config.json
         working-directory: infra
         run: |
-          USER_POOL_ID=$(jq -r ".\"BadgeIt-Auth-${ENVIRONMENT}\".UserPoolId" cdk-outputs.json)
-          USER_POOL_CLIENT_ID=$(jq -r ".\"BadgeIt-Auth-${ENVIRONMENT}\".UserPoolClientId" cdk-outputs.json)
+          USER_POOL_ID=$(jq -r ".\"BadgeTag-Auth-${ENVIRONMENT}\".UserPoolId" cdk-outputs.json)
+          USER_POOL_CLIENT_ID=$(jq -r ".\"BadgeTag-Auth-${ENVIRONMENT}\".UserPoolClientId" cdk-outputs.json)
 
           cat > ../frontend/dist/config.json <<EOF
           {
@@ -144,7 +144,7 @@ jobs:
         working-directory: infra
         run: |
           npx cdk deploy \
-            "BadgeIt-Frontend-${ENVIRONMENT}" \
+            "BadgeTag-Frontend-${ENVIRONMENT}" \
             --exclusively \
             --context environment="$ENVIRONMENT" \
             --context region="$REGION" \
@@ -166,7 +166,7 @@ jobs:
         # `--exclusively` target.
         run: |
           npx cdk deploy \
-            "BadgeIt-Monitoring-${ENVIRONMENT}" \
+            "BadgeTag-Monitoring-${ENVIRONMENT}" \
             --exclusively \
             --context environment="$ENVIRONMENT" \
             --context region="$REGION" \
@@ -178,7 +178,7 @@ jobs:
       - name: Summary
         working-directory: infra
         run: |
-          SITE_URL=$(jq -r ".\"BadgeIt-Frontend-${ENVIRONMENT}\".DistributionUrl" cdk-outputs.json)
+          SITE_URL=$(jq -r ".\"BadgeTag-Frontend-${ENVIRONMENT}\".DistributionUrl" cdk-outputs.json)
           echo "### Deployment complete :rocket:" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Environment:** ${ENVIRONMENT}" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Branch:** ${{ inputs.branch }}" >> "$GITHUB_STEP_SUMMARY"

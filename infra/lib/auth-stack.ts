@@ -1,6 +1,5 @@
 import * as cdk from "aws-cdk-lib";
 import * as cognito from "aws-cdk-lib/aws-cognito";
-import * as ses from "aws-cdk-lib/aws-ses";
 import * as ssm from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 
@@ -13,7 +12,7 @@ import { Construct } from "constructs";
  * dependency).
  */
 export function authStackParamPaths(environment: string) {
-  const base = `/badgeit/${environment}/auth`;
+  const base = `/badgetag/${environment}/auth`;
   return {
     userPoolId: `${base}/user-pool-id`,
     userPoolClientId: `${base}/user-pool-client-id`,
@@ -22,8 +21,8 @@ export function authStackParamPaths(environment: string) {
 
 export interface AuthStackProps extends cdk.StackProps {
   /**
-   * Domain to verify in SES and send auth emails from (e.g. "badgeit.app"
-   * for prod, "dev.badgeit.app" for dev). Each environment uses its own
+   * Domain to verify in SES and send auth emails from (e.g. "badgetag.me"
+   * for prod, "dev.badgetag.me" for dev). Each environment uses its own
    * (sub)domain so sending reputation and bounce/complaint handling stay
    * isolated per environment.
    *
@@ -42,8 +41,8 @@ export interface AuthStackProps extends cdk.StackProps {
   readonly sesFromAddressLocalPart?: string;
   /**
    * The fully-qualified domain that WebAuthn/passkey providers must treat
-   * as the relying party (RP) for this pool (e.g. "badgeit.app" for prod,
-   * "dev.badgeit.app" for dev). Must be a registrable-domain match of the
+   * as the relying party (RP) for this pool (e.g. "badgetag.me" for prod,
+   * "dev.badgetag.me" for dev). Must be a registrable-domain match of the
    * actual origin the browser is on when navigator.credentials.create()/
    * get() run — a passkey registered under one RP ID cannot be used to
    * sign in from a different origin. This is the same custom domain
@@ -98,22 +97,19 @@ export class AuthStack extends cdk.Stack {
     const environment =
       this.node.tryGetContext("environment") ?? "dev";
 
-    // SES domain identity — verifying this domain requires adding DKIM CNAME
-    // records (find them in the SES console: Identities → this domain →
-    // DKIM tab) to DNS. This project's domain (badgeit.app) is hosted in
-    // Cloudflare, not Route 53, so records must be added manually rather
-    // than via a CDK-managed hosted zone.
-    const emailIdentity = new ses.EmailIdentity(this, "EmailIdentity", {
-      identity: ses.Identity.domain(props.sesDomainName),
-    });
-
+    // NOTE: The SES domain identity for `props.sesDomainName` is managed
+    // manually outside this stack for now (the identities were created by
+    // hand in the SES console, DKIM records added to Cloudflare DNS). Cognito
+    // below references the verified domain by name (`sesVerifiedDomain`), not
+    // by a CDK construct, so no in-stack SES resource is required. TODO: import
+    // the existing `AWS::SES::EmailIdentity` back into this stack later.
     const fromAddress = `${props.sesFromAddressLocalPart ?? "noreply"}@${props.sesDomainName}`;
 
     // Cognito User Pool with native passwordless email OTP.
     // Choice-based authentication (email OTP as first factor) requires the
     // Essentials feature plan or higher.
     this.userPool = new cognito.UserPool(this, "UserPool", {
-      userPoolName: `badgeit-users-${environment}`,
+      userPoolName: `badgetag-users-${environment}`,
       featurePlan: cognito.FeaturePlan.ESSENTIALS,
       selfSignUpEnabled: true,
       signInAliases: { email: true },
@@ -154,17 +150,12 @@ export class AuthStack extends cdk.Stack {
       // for why this replaced Cognito's built-in sender.
       email: cognito.UserPoolEmail.withSES({
         fromEmail: fromAddress,
-        fromName: "BadgeIt",
+        fromName: "BadgeTag",
         sesRegion: this.region,
         sesVerifiedDomain: props.sesDomainName,
       }),
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
-
-    // The User Pool must not send email before the domain identity is
-    // verified in SES (verification is asynchronous after this stack's
-    // first deploy — check the SES console for status).
-    this.userPool.node.addDependency(emailIdentity);
 
     // User Pool Client — USER_AUTH flow for passwordless
     // No new scopes needed for passkey APIs: aws.cognito.signin.user.admin
@@ -172,7 +163,7 @@ export class AuthStack extends cdk.Stack {
     // CompleteWebAuthnRegistration/ListWebAuthnCredentials/
     // DeleteWebAuthnCredential.
     this.userPoolClient = this.userPool.addClient("AppClient", {
-      userPoolClientName: `badgeit-app-client-${environment}`,
+      userPoolClientName: `badgetag-app-client-${environment}`,
       authFlows: {
         user: true, // Enables USER_AUTH (choice-based, includes email OTP)
         userSrp: false,

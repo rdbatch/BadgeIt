@@ -14,7 +14,7 @@ use crate::store::ProfileStore;
 
 /// Route an incoming API Gateway request to the appropriate handler.
 ///
-/// `site_url` is the app's public origin (e.g. `https://badgeit.app`, empty
+/// `site_url` is the app's public origin (e.g. `https://badgetag.me`, empty
 /// if no custom domain is configured yet) — only used to build absolute
 /// URLs for the crawler-facing `/__og/profile/{id}` route.
 pub async fn route(

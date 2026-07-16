@@ -2,9 +2,9 @@ use aws_lambda_events::apigw::{ApiGatewayV2httpRequest, ApiGatewayV2httpResponse
 use lambda_runtime::{Error, LambdaEvent, service_fn};
 use tracing_subscriber::EnvFilter;
 
-use badgeit_backend::auth::AuthConfig;
-use badgeit_backend::router::route;
-use badgeit_backend::store::ProfileStore;
+use badgetag_backend::auth::AuthConfig;
+use badgetag_backend::router::route;
+use badgetag_backend::store::ProfileStore;
 
 struct AppState {
     store: ProfileStore,

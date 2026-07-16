@@ -1,5 +1,5 @@
 //! Generates the composite Open Graph share image for a profile: the
-//! BadgeIt logo + wordmark in the top-left corner, a QR code linking to the
+//! BadgeTag logo + wordmark in the top-left corner, a QR code linking to the
 //! public card (with a small caption below it showing the app's domain, or
 //! the profile's full vanity URL if it has a custom slug), and the user's
 //! profile photo (or a generic placeholder avatar, if none has been
@@ -34,10 +34,10 @@ const PLACEHOLDER_GREY: Rgba<u8> = Rgba([209, 213, 219, 255]);
 const QR_LABEL_GREY: Rgba<u8> = Rgba([107, 114, 128, 255]);
 const WHITE: Rgba<u8> = Rgba([255, 255, 255, 255]);
 
-static LOGO_PNG: &[u8] = include_bytes!("../assets/badgeit-logo.png");
+static LOGO_PNG: &[u8] = include_bytes!("../assets/badgetag-logo.png");
 static WORDMARK_FONT: &[u8] = include_bytes!("../assets/fonts/Lato-Bold.ttf");
 
-/// Renders a 1200x630 PNG: logo + "BadgeIt" wordmark (top-left), a QR code
+/// Renders a 1200x630 PNG: logo + "BadgeTag" wordmark (top-left), a QR code
 /// encoding the profile's public URL with a small caption below it (below
 /// that), and the profile photo as a circular crop on the right — or a
 /// placeholder avatar in that same spot when `photo_bytes` is `None` (no
@@ -86,7 +86,7 @@ fn draw_logo_and_wordmark(canvas: &mut RgbaImage) -> Result<(), AppError> {
     let scale = ab_glyph::PxScale::from(52.0);
     let text_x = MARGIN + LOGO_SIZE as i32 + 12;
     let text_y = MARGIN + (LOGO_SIZE as i32 - 52) / 2 - 6;
-    draw_text_mut(canvas, BRAND_BLUE, text_x, text_y, scale, &font, "BadgeIt");
+    draw_text_mut(canvas, BRAND_BLUE, text_x, text_y, scale, &font, "BadgeTag");
 
     Ok(())
 }
@@ -121,8 +121,8 @@ fn draw_qr_code(canvas: &mut RgbaImage, profile_id: &str, site_url: &str) -> Res
 /// Draws a small caption just below the QR code's bottom-left corner —
 /// never overlapping the code's modules or finder patterns, which would
 /// risk breaking scannability. Shows the bare app domain (e.g.
-/// `badgeit.app`), or the profile's full vanity URL (e.g.
-/// `badgeit.app/@rdbatch`) if it has a custom `slug`. Draws nothing if
+/// `badgetag.me`), or the profile's full vanity URL (e.g.
+/// `badgetag.me/@rdbatch`) if it has a custom `slug`. Draws nothing if
 /// `site_url` is empty (no domain configured yet — e.g. local/test runs).
 fn draw_qr_label(
     canvas: &mut RgbaImage,
@@ -221,7 +221,7 @@ mod tests {
     #[test]
     fn generates_a_valid_png_without_a_photo() {
         let png_bytes =
-            generate("abc123", "https://badgeit.app", None, None).expect("should generate");
+            generate("abc123", "https://badgetag.me", None, None).expect("should generate");
         let img = image::load_from_memory(&png_bytes).expect("should decode as an image");
         assert_eq!(img.width(), CANVAS_WIDTH);
         assert_eq!(img.height(), CANVAS_HEIGHT);
@@ -231,7 +231,7 @@ mod tests {
     fn generates_a_valid_png_with_a_slug() {
         // The label should switch to the full vanity URL form without
         // affecting the rest of the composite's layout.
-        let png_bytes = generate("abc123", "https://badgeit.app", Some("rdbatch"), None)
+        let png_bytes = generate("abc123", "https://badgetag.me", Some("rdbatch"), None)
             .expect("should generate");
         let img = image::load_from_memory(&png_bytes).expect("should decode as an image");
         assert_eq!(img.width(), CANVAS_WIDTH);
@@ -254,7 +254,7 @@ mod tests {
             )
             .unwrap();
 
-        let png_bytes = generate("abc123", "https://badgeit.app", None, Some(&sample_bytes))
+        let png_bytes = generate("abc123", "https://badgetag.me", None, Some(&sample_bytes))
             .expect("should generate");
         let img = image::load_from_memory(&png_bytes).expect("should decode as an image");
         assert_eq!(img.width(), CANVAS_WIDTH);

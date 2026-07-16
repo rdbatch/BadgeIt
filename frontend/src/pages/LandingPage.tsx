@@ -205,7 +205,7 @@ export function LandingPage() {
         <div className="text-center">
           <div className="flex items-center justify-center gap-2">
             <img src={logo} alt="" width={40} height={40} className="h-10 w-10" />
-            <h1 className={`text-4xl font-bold ${activeTheme.text}`}>BadgeIt</h1>
+            <h1 className={`text-4xl font-bold ${activeTheme.text}`}>BadgeTag</h1>
           </div>
           <RotatingTagline className={activeTheme.textMuted} />
         </div>
@@ -252,7 +252,7 @@ export function LandingPage() {
               to="/about"
               className={`block text-center text-sm transition-opacity hover:opacity-80 ${activeTheme.textMuted}`}
             >
-              About BadgeIt
+              About BadgeTag
             </Link>
           </form>
         )}

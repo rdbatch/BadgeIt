@@ -1,8 +1,8 @@
-# BadgeIt — Project Context
+# BadgeTag — Project Context
 
 ## Overview
 
-BadgeIt is a lightweight, fully serverless web application deployed on AWS.
+BadgeTag is a lightweight, fully serverless web application deployed on AWS.
 
 ## Tech Stack
 
@@ -58,7 +58,7 @@ BadgeIt is a lightweight, fully serverless web application deployed on AWS.
 
 - One CDK app with separate stacks per concern (e.g., `ApiStack`, `FrontendStack`, `DataStack`).
 - Use L2 constructs where available; drop to L1 only when necessary.
-- Tag all resources with `project=badgeit` and `environment={dev|staging|prod}`.
+- Tag all resources with `project=badgetag` and `environment={dev|staging|prod}`.
 - CDK tests use the built-in assertions library (`aws-cdk-lib/assertions`).
 - No hardcoded account IDs or secrets — use CDK context, SSM, or Secrets Manager.
 

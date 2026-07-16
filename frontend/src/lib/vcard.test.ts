@@ -36,7 +36,7 @@ describe('buildVCard', () => {
 
   it('falls back to a generic name when displayName is missing', () => {
     const vcard = buildVCard({ ...baseProfile, displayName: undefined })
-    expect(vcard).toContain('FN:BadgeIt Contact')
+    expect(vcard).toContain('FN:BadgeTag Contact')
   })
 
   it('includes email only when displayEmail is true', () => {

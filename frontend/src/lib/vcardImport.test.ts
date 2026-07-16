@@ -3,7 +3,7 @@ import { buildVCard } from './vcard'
 import type { Profile } from '../types/profile'
 
 describe('parseVCard', () => {
-  it('parses FN, TEL, and URL from a generic (non-BadgeIt) vCard', () => {
+  it('parses FN, TEL, and URL from a generic (non-BadgeTag) vCard', () => {
     const vcard = [
       'BEGIN:VCARD',
       'VERSION:3.0',
@@ -67,7 +67,7 @@ describe('parseVCard', () => {
     expect(parsed.location).toBe('London')
   })
 
-  it('round-trips a BadgeIt-exported vCard, recovering tagline/pronouns/location from TITLE and NOTE', () => {
+  it('round-trips a BadgeTag-exported vCard, recovering tagline/pronouns/location from TITLE and NOTE', () => {
     const profile: Profile = {
       email: 'ada@example.com',
       displayName: 'Ada Lovelace',

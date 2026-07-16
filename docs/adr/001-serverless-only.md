@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-BadgeIt is a lightweight web application that does not require always-on compute. We want to minimize operational overhead, scale to zero when idle, and pay only for actual usage.
+BadgeTag is a lightweight web application that does not require always-on compute. We want to minimize operational overhead, scale to zero when idle, and pay only for actual usage.
 
 ## Decision
 

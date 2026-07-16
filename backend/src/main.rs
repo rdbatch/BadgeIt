@@ -1,4 +1,4 @@
-// badgeit-backend
+// badgetag-backend
 //
 // This crate's binaries live in src/bin/. Each binary is a separate Lambda handler.
 // Shared logic goes in src/lib.rs (create when needed).

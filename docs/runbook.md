@@ -1,6 +1,6 @@
 # Runbook
 
-Manual operational procedures for BadgeIt — things a human runs on demand,
+Manual operational procedures for BadgeTag — things a human runs on demand,
 as opposed to the automated CI/CD flow. Add a new section here any time we
 build another one of these (a one-off migration, a manual admin job, etc.).
 
@@ -26,8 +26,8 @@ photo — see `backend/src/og_image.rs`) for existing profiles. Two cases:
 
 This is a manual, admin-only operation — there's no schedule or event
 source wired up. It runs as a Step Functions state machine
-(`badgeit-og-regen-<environment>`) that lists every profile, then
-regenerates each one through a Lambda (`badgeit-og-regen-<environment>`),
+(`badgetag-og-regen-<environment>`) that lists every profile, then
+regenerates each one through a Lambda (`badgetag-og-regen-<environment>`),
 with up to 20 running concurrently and a 2-attempt retry per profile.
 
 A `force: false` run is safe to just re-run if it fails partway through —
@@ -46,12 +46,12 @@ case.
 
    ```bash
    aws stepfunctions list-state-machines \
-     --query "stateMachines[?name=='badgeit-og-regen-<environment>'].stateMachineArn" \
+     --query "stateMachines[?name=='badgetag-og-regen-<environment>'].stateMachineArn" \
      --output text
    ```
 
    Use the right credentials/profile for the target account — e.g.
-   `--profile badgeit-prod` for prod (see `scripts/deploy-prod.sh`'s
+   `--profile badgetag-prod` for prod (see `scripts/deploy-prod.sh`'s
    header comment for that profile's setup).
 
 2. Start an execution:
@@ -72,7 +72,7 @@ case.
    ```
 
    Or watch it in the AWS Console (Step Functions → State machines →
-   `badgeit-og-regen-<environment>`) — the visual execution graph shows
+   `badgetag-og-regen-<environment>`) — the visual execution graph shows
    which profiles are in flight, succeeded, or failed. Per-profile logs
    (including which ones were skipped vs. regenerated) are in CloudWatch
-   Logs under `/aws/lambda/badgeit-og-regen-<environment>`.
+   Logs under `/aws/lambda/badgetag-og-regen-<environment>`.

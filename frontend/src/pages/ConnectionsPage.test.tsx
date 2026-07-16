@@ -3,7 +3,7 @@ import { createMemoryRouter, RouterProvider } from 'react-router'
 import { AuthProvider } from '../auth'
 import { ConnectionsPage } from './ConnectionsPage'
 
-const SESSION_KEY = 'badgeit-auth-session'
+const SESSION_KEY = 'badgetag-auth-session'
 
 function seedSession() {
   localStorage.setItem(

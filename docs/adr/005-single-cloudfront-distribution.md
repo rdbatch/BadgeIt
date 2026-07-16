@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-BadgeIt originally used two separate CloudFront distributions:
+BadgeTag originally used two separate CloudFront distributions:
 
 - One in `FrontendStack`, serving the React app from S3 and proxying
   `/api/*` to API Gateway (same-origin, no CORS needed for the API).

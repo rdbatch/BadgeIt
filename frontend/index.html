@@ -4,9 +4,9 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>BadgeIt</title>
+    <title>BadgeTag</title>
     <!--
-      Site-wide fallback OG tags. Per-profile tags ("View {name}'s BadgeIt",
+      Site-wide fallback OG tags. Per-profile tags ("View {name}'s BadgeTag",
       QR-composite image) are served by the backend's /__og/profile/{id}
       route, but only to User-Agents the CloudFront crawler function
       recognizes — anything else (unknown bots, OG debugger sites) lands
@@ -19,13 +19,13 @@
       scripts/deploy-dev.sh, scripts/deploy-prod.sh, .github/workflows/deploy.yml).
       It's harmless left unresolved in local dev (npm run dev / dev:mock).
     -->
-    <meta property="og:site_name" content="BadgeIt" />
+    <meta property="og:site_name" content="BadgeTag" />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="BadgeIt - The conference badge widget that connects people" />
+    <meta property="og:title" content="BadgeTag - The conference badge widget that connects people" />
     <meta property="og:description" content="Your digital business card — share your info with a QR code." />
     <meta property="og:image" content="__SITE_URL__/og-image.png" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="BadgeIt" />
+    <meta name="twitter:title" content="BadgeTag" />
     <meta name="twitter:description" content="Your digital business card — share your info with a QR code." />
     <meta name="twitter:image" content="__SITE_URL__/og-image.png" />
     <script>
@@ -48,13 +48,13 @@
             mint: '#f0fdfa',
           }
           var color
-          if (localStorage.getItem('badgeit-auth-session')) {
-            var cached = JSON.parse(localStorage.getItem('badgeit-last-theme') || 'null')
+          if (localStorage.getItem('badgetag-auth-session')) {
+            var cached = JSON.parse(localStorage.getItem('badgetag-last-theme') || 'null')
             if (cached) {
               color = cached.theme === 'custom' ? cached.customTheme && cached.customTheme.bg : bgColors[cached.theme]
             }
           } else {
-            var scheme = localStorage.getItem('badgeit-color-scheme')
+            var scheme = localStorage.getItem('badgetag-color-scheme')
             if (scheme !== 'light' && scheme !== 'dark') {
               scheme =
                 window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches

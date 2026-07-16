@@ -1,5 +1,5 @@
 """Regenerates the static app-level OG image (frontend/public/og-image.png):
-the BadgeIt logo + wordmark with a tagline underneath, styled like the
+the BadgeTag logo + wordmark with a tagline underneath, styled like the
 header on frontend/src/pages/LandingPage.tsx. This image never varies
 per-request (unlike the per-profile OG images the backend generates
 dynamically in backend/src/og_image.rs), so it's just a committed static
@@ -36,7 +36,7 @@ GAP_GROUP_TAGLINE = 34
 TAGLINE_TEXT = "The conference badge widget that connects people"
 
 FONT_PATH = REPO_ROOT / "backend/assets/fonts/Lato-Bold.ttf"
-LOGO_PATH = REPO_ROOT / "backend/assets/badgeit-logo.png"
+LOGO_PATH = REPO_ROOT / "backend/assets/badgetag-logo.png"
 OUT_PATH = REPO_ROOT / "frontend/public/og-image.png"
 
 
@@ -50,7 +50,7 @@ def main() -> None:
     wordmark_font = ImageFont.truetype(str(FONT_PATH), WORDMARK_SCALE)
     tagline_font = ImageFont.truetype(str(FONT_PATH), TAGLINE_SCALE)
 
-    wordmark_bbox = draw.textbbox((0, 0), "BadgeIt", font=wordmark_font)
+    wordmark_bbox = draw.textbbox((0, 0), "BadgeTag", font=wordmark_font)
     wordmark_w = wordmark_bbox[2] - wordmark_bbox[0]
     wordmark_h = wordmark_bbox[3] - wordmark_bbox[1]
 
@@ -70,7 +70,7 @@ def main() -> None:
 
     wordmark_x = logo_x + LOGO_SIZE + GAP_LOGO_WORDMARK
     wordmark_y = top - wordmark_bbox[1] + (row_height - wordmark_h) // 2
-    draw.text((wordmark_x, wordmark_y), "BadgeIt", font=wordmark_font, fill=BRAND_BLUE)
+    draw.text((wordmark_x, wordmark_y), "BadgeTag", font=wordmark_font, fill=BRAND_BLUE)
 
     tagline_x = (CANVAS_WIDTH - tagline_w) // 2
     tagline_y = top + row_height + GAP_GROUP_TAGLINE - tagline_bbox[1]

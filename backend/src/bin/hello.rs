@@ -13,7 +13,7 @@ async fn handler(
     let response = ApiGatewayV2httpResponse {
         status_code: 200,
         body: Some(Body::Text(
-            r#"{"message":"hello from badgeit"}"#.to_string(),
+            r#"{"message":"hello from badgetag"}"#.to_string(),
         )),
         headers,
         ..Default::default()

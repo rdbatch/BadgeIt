@@ -21,7 +21,7 @@ import { authStackParamPaths } from "./auth-stack";
  * `Fn::ImportValue`, no hard cross-stack delete/replace dependency).
  */
 export function apiStackParamPaths(environment: string) {
-  const base = `/badgeit/${environment}/api`;
+  const base = `/badgetag/${environment}/api`;
   return {
     apiUrl: `${base}/api-url`,
     apiId: `${base}/api-id`,
@@ -47,7 +47,7 @@ export interface ApiStackProps extends cdk.StackProps {
    */
   readonly allowedOrigins?: string[];
   /**
-   * The app's public origin (e.g. "https://badgeit.com"), used only to
+   * The app's public origin (e.g. "https://badgetag.me"), used only to
    * build absolute og:url/og:image values for the crawler-facing
    * /__og/profile/{id} route (see docs on that route in router.rs).
    * Leave unset until a custom domain is configured — the Lambda omits
@@ -59,7 +59,7 @@ export interface ApiStackProps extends cdk.StackProps {
 }
 
 /**
- * ApiStack — Rust Lambda function behind an HTTP API Gateway for BadgeIt.
+ * ApiStack — Rust Lambda function behind an HTTP API Gateway for BadgeTag.
  */
 export class ApiStack extends cdk.Stack {
   /** The HTTP API Gateway URL */
@@ -105,13 +105,13 @@ export class ApiStack extends cdk.Stack {
     );
 
     const apiFnLogGroup = new logs.LogGroup(this, "ApiFnLogGroup", {
-      logGroupName: `/aws/lambda/badgeit-api-${environment}`,
+      logGroupName: `/aws/lambda/badgetag-api-${environment}`,
       retention: logs.RetentionDays.TWO_WEEKS,
     });
 
     // Rust Lambda function (ARM64 Graviton)
     const apiFn = new lambda.Function(this, "ApiFn", {
-      functionName: `badgeit-api-${environment}`,
+      functionName: `badgetag-api-${environment}`,
       runtime: lambda.Runtime.PROVIDED_AL2023,
       architecture: lambda.Architecture.ARM_64,
       handler: "bootstrap",
@@ -149,12 +149,12 @@ export class ApiStack extends cdk.Stack {
     // Lives in ApiStack (rather than its own stack) since it just needs
     // the same table/bucket already resolved here.
     const ogRegenFnLogGroup = new logs.LogGroup(this, "OgRegenFnLogGroup", {
-      logGroupName: `/aws/lambda/badgeit-og-regen-${environment}`,
+      logGroupName: `/aws/lambda/badgetag-og-regen-${environment}`,
       retention: logs.RetentionDays.TWO_WEEKS,
     });
 
     const ogRegenFn = new lambda.Function(this, "OgRegenFn", {
-      functionName: `badgeit-og-regen-${environment}`,
+      functionName: `badgetag-og-regen-${environment}`,
       runtime: lambda.Runtime.PROVIDED_AL2023,
       architecture: lambda.Architecture.ARM_64,
       handler: "bootstrap",
@@ -218,7 +218,7 @@ export class ApiStack extends cdk.Stack {
     // profiles that already have a composite) or `{ "force": true }`
     // (regenerate everyone, e.g. after a layout change).
     new sfn.StateMachine(this, "OgRegenStateMachine", {
-      stateMachineName: `badgeit-og-regen-${environment}`,
+      stateMachineName: `badgetag-og-regen-${environment}`,
       definitionBody: sfn.DefinitionBody.fromChainable(listProfiles.next(regenerateAll)),
       timeout: cdk.Duration.hours(2),
     });
@@ -234,7 +234,7 @@ export class ApiStack extends cdk.Stack {
     const allowedOrigins = props.allowedOrigins ?? [];
 
     const httpApi = new apigwv2.HttpApi(this, "HttpApi", {
-      apiName: `badgeit-api-${environment}`,
+      apiName: `badgetag-api-${environment}`,
       corsPreflight:
         allowedOrigins.length > 0
           ? {
@@ -370,7 +370,7 @@ export class ApiStack extends cdk.Stack {
     });
 
     new cloudwatch.Alarm(this, "LambdaErrorsAlarm", {
-      alarmName: `badgeit-api-${environment}-lambda-errors`,
+      alarmName: `badgetag-api-${environment}-lambda-errors`,
       alarmDescription: "5 or more Lambda errors within a 5-minute window",
       metric: lambdaErrors,
       threshold: 5,
@@ -379,7 +379,7 @@ export class ApiStack extends cdk.Stack {
     });
 
     new cloudwatch.Alarm(this, "LambdaDurationAlarm", {
-      alarmName: `badgeit-api-${environment}-lambda-p99-duration`,
+      alarmName: `badgetag-api-${environment}-lambda-p99-duration`,
       alarmDescription: "p99 Lambda duration at or above 10s for two consecutive 5-minute periods",
       metric: lambdaDurationP99,
       threshold: cdk.Duration.seconds(10).toMilliseconds(),
@@ -388,7 +388,7 @@ export class ApiStack extends cdk.Stack {
     });
 
     new cloudwatch.Alarm(this, "ApiGateway5xxAlarm", {
-      alarmName: `badgeit-api-${environment}-5xx`,
+      alarmName: `badgetag-api-${environment}-5xx`,
       alarmDescription: "5 or more API Gateway 5xx responses within a 5-minute window",
       metric: httpApi.metricServerError({ period: cdk.Duration.minutes(5) }),
       threshold: 5,
@@ -397,7 +397,7 @@ export class ApiStack extends cdk.Stack {
     });
 
     new cloudwatch.Alarm(this, "DynamoThrottleAlarm", {
-      alarmName: `badgeit-api-${environment}-dynamodb-throttles`,
+      alarmName: `badgetag-api-${environment}-dynamodb-throttles`,
       alarmDescription: "Any DynamoDB throttled requests within a 5-minute window",
       metric: dynamoThrottledRequests,
       threshold: 1,

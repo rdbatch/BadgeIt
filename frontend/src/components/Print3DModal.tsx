@@ -113,7 +113,7 @@ export function Print3DModal({ profileId, isOpen, onClose }: Print3DModalProps) 
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `badgeit-${profileId}.3mf`
+    link.download = `badgetag-${profileId}.3mf`
     link.click()
     URL.revokeObjectURL(url)
   }

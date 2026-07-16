@@ -25,7 +25,7 @@ pub struct ProfileStore {
     table_name: String,
     bucket_name: String,
     image_base_url: String,
-    /// The app's public origin (e.g. `https://badgeit.app`), empty until a
+    /// The app's public origin (e.g. `https://badgetag.me`), empty until a
     /// custom domain is configured. Used only to bake an absolute profile
     /// URL into the QR code generated for `og_image::generate` — generation
     /// itself doesn't require it (falls back to a relative `/p/{id}`).

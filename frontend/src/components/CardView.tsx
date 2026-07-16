@@ -79,7 +79,7 @@ export function CardView({ profile, profileId }: CardViewProps) {
     try {
       const photo = profile.imageUrl ? await fetchImageAsVCardPhoto(profile.imageUrl) : null
       const vcard = buildVCard(profile, photo ?? undefined)
-      downloadVCardFile(vcard, `${profileId ?? 'badgeit'}.vcf`)
+      downloadVCardFile(vcard, `${profileId ?? 'badgetag'}.vcf`)
     } finally {
       setIsSavingContact(false)
     }
@@ -246,7 +246,7 @@ export function CardView({ profile, profileId }: CardViewProps) {
             href="/"
             className="opacity-60 transition-opacity hover:opacity-100"
           >
-            Made with BadgeIt
+            Made with BadgeTag
           </a>
         </footer>
       </div>

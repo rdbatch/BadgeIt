@@ -8,7 +8,7 @@ describe("DataStack", () => {
   beforeAll(() => {
     const app = new cdk.App({ context: { environment: "test" } });
     const stack = new DataStack(app, "TestDataStack", {
-      tags: { project: "badgeit", environment: "test" },
+      tags: { project: "badgetag", environment: "test" },
       env: { region: "us-east-1", account: "123456789012" },
     });
     template = Template.fromStack(stack);
@@ -105,7 +105,7 @@ describe("DataStack", () => {
       const buckets = template.findResources("AWS::S3::Bucket");
       const imageBucket = Object.values(buckets).find((b: any) =>
         b.Properties?.BucketName?.["Fn::Join"]?.[1]?.some((part: unknown) =>
-          typeof part === "string" && part.includes("badge-it-images"),
+          typeof part === "string" && part.includes("badgetag-images"),
         ),
       );
       expect(imageBucket?.Properties?.CorsConfiguration).toBeUndefined();
@@ -155,28 +155,28 @@ describe("DataStack", () => {
   describe("SSM Parameters", () => {
     test("publishes table ARN to SSM", () => {
       template.hasResourceProperties("AWS::SSM::Parameter", {
-        Name: "/badgeit/test/data/table-arn",
+        Name: "/badgetag/test/data/table-arn",
         Type: "String",
       });
     });
 
     test("publishes table name to SSM", () => {
       template.hasResourceProperties("AWS::SSM::Parameter", {
-        Name: "/badgeit/test/data/table-name",
+        Name: "/badgetag/test/data/table-name",
         Type: "String",
       });
     });
 
     test("publishes image bucket ARN to SSM", () => {
       template.hasResourceProperties("AWS::SSM::Parameter", {
-        Name: "/badgeit/test/data/image-bucket-arn",
+        Name: "/badgetag/test/data/image-bucket-arn",
         Type: "String",
       });
     });
 
     test("publishes image bucket name to SSM", () => {
       template.hasResourceProperties("AWS::SSM::Parameter", {
-        Name: "/badgeit/test/data/image-bucket-name",
+        Name: "/badgetag/test/data/image-bucket-name",
         Type: "String",
       });
     });

@@ -14,7 +14,7 @@ import { Construct } from "constructs";
  * dependency).
  */
 export function dataStackParamPaths(environment: string) {
-  const base = `/badgeit/${environment}/data`;
+  const base = `/badgetag/${environment}/data`;
   return {
     tableArn: `${base}/table-arn`,
     tableName: `${base}/table-name`,
@@ -24,7 +24,7 @@ export function dataStackParamPaths(environment: string) {
 }
 
 /**
- * DataStack — DynamoDB Global Table and S3 image bucket for BadgeIt profiles.
+ * DataStack — DynamoDB Global Table and S3 image bucket for BadgeTag profiles.
  */
 export class DataStack extends cdk.Stack {
   /** The single DynamoDB Global Table for all profile data */
@@ -39,12 +39,12 @@ export class DataStack extends cdk.Stack {
     // DynamoDB Global Table (single-table design)
     // Uses TableV2 which deploys as a Global Table with one replica in the
     // primary region. Additional replicas can be added later for multi-region.
-    // NOTE: The physical table name retains the original "badge-it" prefix
+    // NOTE: The physical table name retains the original "badgetag" prefix
     // to avoid CloudFormation resource replacement (which would destroy
     // data). Code references this table via stack outputs / env vars, not
     // by hardcoded name.
     this.table = new dynamodb.TableV2(this, "ProfileTable", {
-      tableName: `badge-it-profiles-${this.node.tryGetContext("environment") ?? "dev"}`,
+      tableName: `badgetag-profiles-${this.node.tryGetContext("environment") ?? "dev"}`,
       partitionKey: { name: "pk", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
       billing: dynamodb.Billing.onDemand(),
@@ -56,12 +56,12 @@ export class DataStack extends cdk.Stack {
     // through the frontend's CloudFront distribution (via Origin Access
     // Control, wired up in FrontendStack), writes happen only through the
     // Lambda (grantReadWrite in ApiStack).
-    // NOTE: The physical bucket name retains the original "badge-it" prefix
+    // NOTE: The physical bucket name retains the original "badgetag" prefix
     // to avoid CloudFormation resource replacement (which would destroy
     // data). Code references this bucket via stack outputs / env vars, not
     // by hardcoded name.
     this.imageBucket = new s3.Bucket(this, "ImageBucket", {
-      bucketName: `badge-it-images-${cdk.Aws.ACCOUNT_ID}-${this.node.tryGetContext("environment") ?? "dev"}`,
+      bucketName: `badgetag-images-${cdk.Aws.ACCOUNT_ID}-${this.node.tryGetContext("environment") ?? "dev"}`,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
