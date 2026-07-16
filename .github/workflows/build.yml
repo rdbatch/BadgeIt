@@ -141,4 +141,15 @@ jobs:
         run: npm run test
 
       - name: CDK synth (sanity check, no AWS credentials required)
-        run: npx cdk synth --context environment=dev --context region=us-east-2
+        # domainName/certificateArn use placeholder values here — this synth
+        # never touches real AWS, it's just confirming the app compiles and
+        # synthesizes. AuthStack (passkey relying party ID) and FrontendStack
+        # (custom domain) both require these to be set, regardless of which
+        # stack is actually targeted, since bin/app.ts always constructs
+        # every stack before CDK filters down to a specific one.
+        run: |
+          npx cdk synth \
+            --context environment=dev \
+            --context region=us-east-2 \
+            --context domainName=dev.badgeit.app \
+            --context certificateArn=arn:aws:acm:us-east-1:000000000000:certificate/00000000-0000-0000-0000-000000000000

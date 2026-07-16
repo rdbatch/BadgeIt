@@ -48,23 +48,47 @@ interface StoredConnection {
   created_at: string
 }
 
+/** A registered passkey in the mock store's simplified shape. */
+interface StoredPasskey {
+  credentialId: string
+  friendlyName: string
+  createdAt: string
+  authenticatorAttachment: string
+}
+
 interface MockStore {
   profile: StoredProfile | null
   connections: StoredConnection[]
+  passkeys: StoredPasskey[]
+  /**
+   * Emails that have completed ConfirmSignUp — lets SignUp correctly
+   * distinguish a brand-new address (mode: 'new') from a returning one
+   * (mode: 'existing'), the same way real Cognito's UsernameExistsException
+   * does. Without this, every SignUp call would unconditionally succeed and
+   * the app could never exercise its 'existing' sign-in path (email OTP or
+   * passkey) against this mock — only ever the first-time signup flow.
+   */
+  confirmedEmails: string[]
 }
 
 function readStore(): MockStore {
   try {
     const raw = localStorage.getItem(MOCK_STORE_KEY)
     if (raw) {
-      // Defensive against a store written before `connections` existed.
+      // Defensive against a store written before `connections`/`passkeys`/
+      // `confirmedEmails` existed.
       const parsed = JSON.parse(raw) as Partial<MockStore>
-      return { profile: parsed.profile ?? null, connections: parsed.connections ?? [] }
+      return {
+        profile: parsed.profile ?? null,
+        connections: parsed.connections ?? [],
+        passkeys: parsed.passkeys ?? [],
+        confirmedEmails: parsed.confirmedEmails ?? [],
+      }
     }
   } catch {
     // Corrupt store — fall through to a fresh one.
   }
-  return { profile: null, connections: [] }
+  return { profile: null, connections: [], passkeys: [], confirmedEmails: [] }
 }
 
 function writeStore(store: MockStore): void {
@@ -93,7 +117,73 @@ export function seedDemoProfile(): void {
       ],
     },
     connections: [],
+    passkeys: [],
+    // The seeded profile represents a pre-existing account, so its email
+    // starts out already confirmed (a returning user), not brand new.
+    confirmedEmails: ['ada@example.com'],
   })
+}
+
+function isEmailConfirmed(email: string | undefined): boolean {
+  if (!email) return false
+  return readStore().confirmedEmails.includes(email.toLowerCase())
+}
+
+function confirmEmail(email: string | undefined): void {
+  if (!email) return
+  const store = readStore()
+  const normalized = email.toLowerCase()
+  if (store.confirmedEmails.includes(normalized)) return
+  writeStore({ ...store, confirmedEmails: [...store.confirmedEmails, normalized] })
+}
+
+function hasMockPasskey(): boolean {
+  return readStore().passkeys.length > 0
+}
+
+function getMockPasskeys(): StoredPasskey[] {
+  return readStore().passkeys
+}
+
+function addMockPasskey(): void {
+  const store = readStore()
+  const passkey: StoredPasskey = {
+    credentialId: crypto.randomUUID(),
+    // Mirrors Cognito's own auto-naming convention for FriendlyCredentialName.
+    friendlyName: `Device #${store.passkeys.length + 1}`,
+    createdAt: new Date().toISOString(),
+    authenticatorAttachment: 'platform',
+  }
+  writeStore({ ...store, passkeys: [...store.passkeys, passkey] })
+}
+
+function removeMockPasskey(credentialId: string | undefined): void {
+  if (!credentialId) return
+  const store = readStore()
+  writeStore({
+    ...store,
+    passkeys: store.passkeys.filter((p) => p.credentialId !== credentialId),
+  })
+}
+
+/** Minimal, inert CredentialCreationOptions/CredentialRequestOptions JSON —
+ * real field values don't matter here since navigator.credentials.create()/
+ * get() are stubbed under mock mode (see mocks/webauthn.ts) and never
+ * actually read them. */
+function mockCredentialCreationOptions() {
+  return {
+    challenge: 'bW9jay1jaGFsbGVuZ2U',
+    rp: { id: 'localhost', name: 'BadgeIt (mock)' },
+    user: { id: 'bW9jay11c2Vy', name: 'mock@example.com', displayName: 'Mock User' },
+    pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+  }
+}
+
+function mockCredentialRequestOptions() {
+  return {
+    challenge: 'bW9jay1jaGFsbGVuZ2U',
+    rpId: 'localhost',
+  }
 }
 
 function json(body: unknown, status = 200): Response {
@@ -121,19 +211,35 @@ const authenticationResult = {
 
 /**
  * Answers the Cognito calls made by src/auth/service.ts. Any email signs
- * up, and any verification code passes the OTP/confirmation challenge.
+ * up, and any verification code passes the OTP/confirmation challenge. A
+ * mock account is treated as "has a passkey" once one has been registered
+ * via the ManagePasskeysModal flow (see addMockPasskey) — real Cognito
+ * scopes this per-account, but since this mock has only one demo
+ * account/store, "has any mock passkey registered" stands in for that.
  */
 async function handleCognito(request: Request): Promise<Response> {
   const target = request.headers.get('x-amz-target') ?? ''
   const body = (await request.json().catch(() => ({}))) as {
     AuthFlow?: string
     Session?: string
+    ChallengeName?: string
+    ChallengeResponses?: Record<string, string>
+    AccessToken?: string
+    CredentialId?: string
+    Username?: string
   }
 
   if (target.endsWith('.SignUp')) {
+    if (isEmailConfirmed(body.Username)) {
+      // Mirrors real Cognito: signing up an already-confirmed email fails
+      // with UsernameExistsException, which service.ts's signUpUser()
+      // catches to fall into the 'existing' sign-in path instead.
+      return json({ __type: 'UsernameExistsException', message: 'User already exists' }, 400)
+    }
     return cognitoJson({ UserConfirmed: true, UserSub: 'mock-user-sub' })
   }
   if (target.endsWith('.ConfirmSignUp')) {
+    confirmEmail(body.Username)
     // service.ts's 'new' mode (see AuthMode) immediately follows this with
     // an InitiateAuth carrying this Session, expecting a completed sign-in
     // rather than another challenge — matched by the `body.Session` branch
@@ -151,13 +257,66 @@ async function handleCognito(request: Request): Promise<Response> {
       // completes this in one step, no further challenge.
       return cognitoJson({ AuthenticationResult: authenticationResult })
     }
+    // Real Cognito reports, per-account, which first factors are
+    // available via SELECT_CHALLENGE/AvailableChallenges — mirrored here
+    // via whether a mock passkey has been registered.
     return cognitoJson({
-      ChallengeName: 'EMAIL_OTP',
-      Session: 'mock-challenge-session',
+      ChallengeName: 'SELECT_CHALLENGE',
+      Session: 'mock-select-challenge-session',
+      AvailableChallenges: hasMockPasskey() ? ['EMAIL_OTP', 'WEB_AUTHN'] : ['EMAIL_OTP'],
     })
   }
   if (target.endsWith('.RespondToAuthChallenge')) {
+    if (
+      body.ChallengeName === 'SELECT_CHALLENGE' &&
+      body.ChallengeResponses?.ANSWER === 'EMAIL_OTP'
+    ) {
+      return cognitoJson({ ChallengeName: 'EMAIL_OTP', Session: 'mock-challenge-session' })
+    }
+    if (
+      body.ChallengeName === 'SELECT_CHALLENGE' &&
+      body.ChallengeResponses?.ANSWER === 'WEB_AUTHN'
+    ) {
+      return cognitoJson({
+        ChallengeName: 'WEB_AUTHN',
+        Session: 'mock-webauthn-session',
+        ChallengeParameters: {
+          CREDENTIAL_REQUEST_OPTIONS: JSON.stringify(mockCredentialRequestOptions()),
+        },
+      })
+    }
+    // EMAIL_OTP code submission, or a WEB_AUTHN assertion submission —
+    // both complete sign-in in this mock (no real code/signature
+    // checking, same as today's unconditional success).
     return cognitoJson({ AuthenticationResult: authenticationResult })
+  }
+  if (target.endsWith('.StartWebAuthnRegistration')) {
+    return cognitoJson({ CredentialCreationOptions: mockCredentialCreationOptions() })
+  }
+  if (target.endsWith('.CompleteWebAuthnRegistration')) {
+    addMockPasskey()
+    return cognitoJson({})
+  }
+  if (target.endsWith('.ListWebAuthnCredentials')) {
+    return cognitoJson({
+      Credentials: getMockPasskeys().map((p) => ({
+        CredentialId: p.credentialId,
+        FriendlyCredentialName: p.friendlyName,
+        RelyingPartyId: 'localhost',
+        AuthenticatorAttachment: p.authenticatorAttachment,
+        AuthenticatorTransports: ['internal'],
+        // The SDK's Smithy JSON protocol deserializes Date-typed fields
+        // (like CreatedAt) as epoch-seconds numbers, not ISO strings — the
+        // store keeps an ISO string for its own bookkeeping, converted
+        // here to match what a real Cognito response would send over the
+        // wire.
+        CreatedAt: Math.floor(new Date(p.createdAt).getTime() / 1000),
+      })),
+    })
+  }
+  if (target.endsWith('.DeleteWebAuthnCredential')) {
+    removeMockPasskey(body.CredentialId)
+    return cognitoJson({})
   }
   return json({ __type: 'UnknownOperationException' }, 400)
 }

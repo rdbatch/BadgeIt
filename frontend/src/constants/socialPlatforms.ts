@@ -12,6 +12,7 @@ import {
   GlobeIcon,
   DiscordIcon,
   TwitchIcon,
+  AwsBuilderIcon,
   type IconProps,
 } from '../components/SocialIcons'
 
@@ -27,6 +28,7 @@ const platformIcons: Record<SocialPlatform, React.ComponentType<IconProps>> = {
   calendar: CalendarIcon,
   discord: DiscordIcon,
   twitch: TwitchIcon,
+  awsbuilder: AwsBuilderIcon,
   custom: GlobeIcon,
 }
 
@@ -42,6 +44,7 @@ const platformLabels: Record<SocialPlatform, string> = {
   calendar: 'Calendar',
   discord: 'Discord',
   twitch: 'Twitch',
+  awsbuilder: 'AWS Builder Center',
   custom: 'Link',
 }
 
@@ -57,6 +60,7 @@ const platformPlaceholders: Record<SocialPlatform, string> = {
   calendar: 'cal.com/you',
   discord: 'yourusername or discord.gg/yourinvite',
   twitch: 'twitch.tv/you',
+  awsbuilder: 'builder.aws.com/community/@you',
   custom: 'example.com',
 }
 

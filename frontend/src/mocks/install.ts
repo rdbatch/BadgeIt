@@ -1,4 +1,5 @@
 import { handleMockRequest, seedDemoProfile } from './handlers'
+import { installMockWebAuthn } from './webauthn'
 
 /**
  * Activates mock mode: seeds demo data and wraps window.fetch so Cognito
@@ -16,6 +17,7 @@ export function installMocks(): void {
   }
 
   seedDemoProfile()
+  installMockWebAuthn()
 
   const realFetch = window.fetch.bind(window)
   window.fetch = async (input, init) => {

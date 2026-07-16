@@ -57,7 +57,7 @@ cargo lambda build --release --arm64 --bin api
 ```bash
 cd infra
 npm install
-npx cdk synth --context environment=dev --context region=<aws-region>
+npx cdk synth --context environment=dev --context region=<aws-region> --context domainName=<site-domain> --context certificateArn=<acm-certificate-arn>
 ```
 
 ## Testing

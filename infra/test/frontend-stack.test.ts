@@ -39,6 +39,7 @@ function synthFrontendStack(
   const authStack = new AuthStack(app, `${id}Auth`, {
     tags: { project: "badgeit", environment: "test" },
     sesDomainName: "test.badgeit.app",
+    passkeyRelyingPartyId: "test.badgeit.app",
     env,
   });
   const apiStack = new ApiStack(app, `${id}Api`, {

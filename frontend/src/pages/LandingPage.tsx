@@ -1,13 +1,27 @@
 import { useState, useEffect, type FormEvent } from 'react'
 import { useNavigate, Link } from 'react-router'
-import { useAuth, initiateAuth, respondToChallenge, type AuthMode } from '../auth'
+import {
+  useAuth,
+  initiateAuth,
+  selectEmailOtp,
+  signInWithPasskey,
+  respondToChallenge,
+  startPasskeyRegistration,
+  completePasskeyRegistration,
+  type AuthMode,
+} from '../auth'
 import { themes, themeBgColors } from '../constants/themes'
 import { useColorScheme } from '../hooks/useColorScheme'
 import { ColorSchemeToggle } from '../components/ColorSchemeToggle'
 import { RotatingTagline } from '../components/RotatingTagline'
 import logo from '../assets/logo.svg'
 
-type AuthStep = 'email' | 'verify'
+type AuthStep = 'email' | 'choose-method' | 'verify' | 'setup-passkey'
+
+/** True for a WebAuthn ceremony the user themselves dismissed/cancelled. */
+function isUserCancellation(err: unknown): boolean {
+  return err instanceof DOMException && err.name === 'NotAllowedError'
+}
 
 /**
  * Cognito's SignUp confirmation code (new accounts) and EMAIL_OTP sign-in
@@ -60,13 +74,65 @@ export function LandingPage() {
     setIsLoading(true)
 
     try {
-      const mode = await initiateAuth(email.trim().toLowerCase())
+      const { mode, hasPasskey } = await initiateAuth(email.trim().toLowerCase())
       setAuthMode(mode)
-      setStep('verify')
+      if (mode === 'existing' && hasPasskey) {
+        setStep('choose-method')
+      } else if (mode === 'existing') {
+        // No passkey on this account — go straight to email OTP, same as
+        // before, just with one explicit selectEmailOtp() call now that
+        // SELECT_CHALLENGE requires an answer before Cognito will send it.
+        await selectEmailOtp(email.trim().toLowerCase())
+        setStep('verify')
+      } else {
+        setStep('verify')
+      }
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : 'Failed to send verification code'
       setError(message)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  async function handlePasskeySignIn() {
+    setError('')
+    setIsLoading(true)
+
+    try {
+      await signInWithPasskey(email.trim().toLowerCase())
+      syncSession()
+      navigate('/edit', { replace: true })
+    } catch (err: unknown) {
+      // SELECT_CHALLENGE is single-use and was just consumed by this
+      // attempt — even a cancelled/failed passkey ceremony leaves it
+      // unusable, so "Send a code via email instead" can no longer answer
+      // the same session. Send the user back to a fresh initiateAuth().
+      const message = isUserCancellation(err)
+        ? 'Passkey sign-in was cancelled. Please try again.'
+        : err instanceof Error
+          ? `${err.message} Please try again.`
+          : 'Passkey sign-in failed. Please try again.'
+      setError(message)
+      setStep('email')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  async function handleUseEmailInstead() {
+    setError('')
+    setIsLoading(true)
+
+    try {
+      await selectEmailOtp(email.trim().toLowerCase())
+      setStep('verify')
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : 'Failed to send verification code. Please try again.'
+      setError(message)
+      setStep('email')
     } finally {
       setIsLoading(false)
     }
@@ -80,10 +146,42 @@ export function LandingPage() {
     try {
       await respondToChallenge(email.trim().toLowerCase(), code.trim())
       syncSession()
-      navigate('/edit', { replace: true })
+      if (authMode === 'new') {
+        setStep('setup-passkey')
+      } else {
+        navigate('/edit', { replace: true })
+      }
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : 'Verification failed'
+      setError(message)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  async function handleSetupPasskey() {
+    setError('')
+    setIsLoading(true)
+
+    try {
+      const options = await startPasskeyRegistration()
+      const credential = await navigator.credentials.create(options)
+      if (!(credential instanceof PublicKeyCredential)) {
+        throw new Error('Passkey creation did not return a credential')
+      }
+      await completePasskeyRegistration(credential)
+      navigate('/edit', { replace: true })
+    } catch (err: unknown) {
+      // Unlike the sign-in path, there's no consumed challenge session
+      // here — registration calls are independent/retryable against an
+      // already-authenticated access token, so staying on this screen and
+      // letting the user retry (or skip) is safe.
+      const message = isUserCancellation(err)
+        ? 'Passkey setup was cancelled.'
+        : err instanceof Error
+          ? err.message
+          : 'Passkey setup failed'
       setError(message)
     } finally {
       setIsLoading(false)
@@ -159,6 +257,53 @@ export function LandingPage() {
           </form>
         )}
 
+        {/* Choose sign-in method: passkey (if registered) or email code */}
+        {step === 'choose-method' && (
+          <div className="space-y-4">
+            <div className="text-center">
+              <p className={`text-sm ${activeTheme.textMuted}`}>
+                Sign in as{' '}
+                <span className={`font-medium ${activeTheme.text}`}>{email}</span>
+              </p>
+            </div>
+
+            {error && (
+              <p className="text-sm text-red-600" role="alert">
+                {error}
+              </p>
+            )}
+
+            <button
+              type="button"
+              onClick={handlePasskeySignIn}
+              disabled={isLoading}
+              className="w-full rounded-lg bg-blue-600 px-4 py-3 font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isLoading ? 'Waiting for passkey...' : 'Sign in with Passkey'}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleUseEmailInstead}
+              disabled={isLoading}
+              className={`w-full rounded-lg border border-current/20 px-4 py-3 font-medium transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50 ${activeTheme.text}`}
+            >
+              Send a code via email instead
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setStep('email')
+                setError('')
+              }}
+              className={`w-full text-sm transition-opacity hover:opacity-80 ${activeTheme.textMuted}`}
+            >
+              Use a different email
+            </button>
+          </div>
+        )}
+
         {/* Verification Code Step */}
         {step === 'verify' && (
           <form onSubmit={handleCodeSubmit} className="space-y-4">
@@ -217,6 +362,41 @@ export function LandingPage() {
               Use a different email
             </button>
           </form>
+        )}
+
+        {/* Post-signup optional passkey setup */}
+        {step === 'setup-passkey' && (
+          <div className="space-y-4 text-center">
+            <h2 className={`text-xl font-bold ${activeTheme.text}`}>Set up a passkey?</h2>
+            <p className={`text-sm ${activeTheme.textMuted}`}>
+              Sign in faster next time with Face ID, Touch ID, or your device's screen lock
+              — no more waiting on emailed codes.
+            </p>
+
+            {error && (
+              <p className="text-sm text-red-600" role="alert">
+                {error}
+              </p>
+            )}
+
+            <button
+              type="button"
+              onClick={handleSetupPasskey}
+              disabled={isLoading}
+              className="w-full rounded-lg bg-blue-600 px-4 py-3 font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isLoading ? 'Setting up...' : 'Set up passkey'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => navigate('/edit', { replace: true })}
+              disabled={isLoading}
+              className={`w-full text-sm transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50 ${activeTheme.textMuted}`}
+            >
+              Skip for now
+            </button>
+          </div>
         )}
       </div>
     </main>

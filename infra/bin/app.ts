@@ -34,6 +34,25 @@ const stackEnv: cdk.Environment = {
     process.env.CDK_DEFAULT_ACCOUNT,
 };
 
+// Computed once and shared: FrontendStack's custom domain (once configured)
+// is also the app's public origin, which ApiStack needs to build absolute
+// og:url/og:image values for its crawler-facing /__og/profile/{id} route,
+// and which AuthStack needs as its WebAuthn/passkey relying party ID (must
+// match the real browser origin — see AuthStack's passkeyRelyingPartyId
+// doc comment).
+const domainNames = (app.node.tryGetContext("domainName") as string | undefined)
+  ?.split(",")
+  .map((domain) => domain.trim())
+  .filter(Boolean);
+const siteUrl = domainNames?.[0] ? `https://${domainNames[0]}` : undefined;
+
+if (!domainNames?.[0]) {
+  throw new Error(
+    'CDK context "domainName" is required to configure the passkey relying party ID. Pass it via: --context domainName=<domain>\n' +
+      "Example: npx cdk deploy --context domainName=dev.badgeit.app --context region=us-west-2 --context environment=dev",
+  );
+}
+
 const dataStack = new DataStack(app, `BadgeIt-Data-${environment}`, {
   tags: commonTags,
   env: stackEnv,
@@ -49,16 +68,8 @@ const authStack = new AuthStack(app, `BadgeIt-Auth-${environment}`, {
   sesDomainName:
     (app.node.tryGetContext("sesDomainName") as string | undefined) ??
     (environment === "prod" ? "badgeit.app" : `${environment}.badgeit.app`),
+  passkeyRelyingPartyId: domainNames[0],
 });
-
-// Computed once and shared: FrontendStack's custom domain (once configured)
-// is also the app's public origin, which ApiStack needs to build absolute
-// og:url/og:image values for its crawler-facing /__og/profile/{id} route.
-const domainNames = (app.node.tryGetContext("domainName") as string | undefined)
-  ?.split(",")
-  .map((domain) => domain.trim())
-  .filter(Boolean);
-const siteUrl = domainNames?.[0] ? `https://${domainNames[0]}` : undefined;
 
 const apiStack = new ApiStack(app, `BadgeIt-Api-${environment}`, {
   tags: commonTags,

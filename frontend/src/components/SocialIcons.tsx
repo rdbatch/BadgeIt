@@ -74,6 +74,16 @@ function TwitchIcon({ className }: IconProps) {
   )
 }
 
+/** Hexagonal badge icon for AWS Builder Center */
+function AwsBuilderIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12 .5l10.39 6v11L12 23.5l-10.39-6v-11L12 .5zm0 2.31L3.61 7.5v9l8.39 4.69 8.39-4.69v-9L12 2.81z" />
+      <path d="M12 6.5l5.2 3v6l-5.2 3-5.2-3v-6l5.2-3zm0 2.31L8.8 10.5v3l3.2 1.69 3.2-1.69v-3L12 8.81z" />
+    </svg>
+  )
+}
+
 /** Person icon for personal website */
 function PersonIcon({ className }: IconProps) {
   return (
@@ -218,6 +228,7 @@ export {
   GlobeIcon,
   DiscordIcon,
   TwitchIcon,
+  AwsBuilderIcon,
   EmailIcon,
   PhoneIcon,
   LocationIcon,

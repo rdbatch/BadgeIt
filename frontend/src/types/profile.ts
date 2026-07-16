@@ -11,6 +11,7 @@ export type SocialPlatform =
   | 'calendar'
   | 'discord'
   | 'twitch'
+  | 'awsbuilder'
   | 'custom'
 
 /** A single social link entry */

@@ -52,14 +52,84 @@ describe('seedDemoProfile', () => {
 })
 
 describe('Cognito handlers', () => {
-  it('answers InitiateAuth with an OTP challenge', async () => {
+  it('answers InitiateAuth with SELECT_CHALLENGE, offering only EMAIL_OTP when no passkey is registered', async () => {
     const res = await handleMockRequest(
       cognitoRequest('InitiateAuth', { AuthFlow: 'USER_AUTH' }),
     )
     expect(res?.status).toBe(200)
     const body = await res?.json()
+    expect(body.ChallengeName).toBe('SELECT_CHALLENGE')
+    expect(body.AvailableChallenges).toEqual(['EMAIL_OTP'])
+    expect(body.Session).toBeTruthy()
+  })
+
+  it('offers WEB_AUTHN in AvailableChallenges once a passkey is registered', async () => {
+    await handleMockRequest(
+      cognitoRequest('CompleteWebAuthnRegistration', { AccessToken: MOCK_ID_TOKEN }),
+    )
+
+    const res = await handleMockRequest(
+      cognitoRequest('InitiateAuth', { AuthFlow: 'USER_AUTH' }),
+    )
+    const body = await res?.json()
+    expect(body.AvailableChallenges).toEqual(['EMAIL_OTP', 'WEB_AUTHN'])
+  })
+
+  it('answers SELECT_CHALLENGE/EMAIL_OTP by returning an EMAIL_OTP challenge', async () => {
+    const res = await handleMockRequest(
+      cognitoRequest('RespondToAuthChallenge', {
+        ChallengeName: 'SELECT_CHALLENGE',
+        ChallengeResponses: { USERNAME: 'ada@example.com', ANSWER: 'EMAIL_OTP' },
+      }),
+    )
+    const body = await res?.json()
     expect(body.ChallengeName).toBe('EMAIL_OTP')
     expect(body.Session).toBeTruthy()
+  })
+
+  it('answers SELECT_CHALLENGE/WEB_AUTHN by returning a WEB_AUTHN challenge with request options', async () => {
+    const res = await handleMockRequest(
+      cognitoRequest('RespondToAuthChallenge', {
+        ChallengeName: 'SELECT_CHALLENGE',
+        ChallengeResponses: { USERNAME: 'ada@example.com', ANSWER: 'WEB_AUTHN' },
+      }),
+    )
+    const body = await res?.json()
+    expect(body.ChallengeName).toBe('WEB_AUTHN')
+    expect(body.Session).toBeTruthy()
+    expect(JSON.parse(body.ChallengeParameters.CREDENTIAL_REQUEST_OPTIONS).challenge).toBeTruthy()
+  })
+
+  it('supports the full passkey registration/list/delete lifecycle', async () => {
+    const start = await handleMockRequest(
+      cognitoRequest('StartWebAuthnRegistration', { AccessToken: MOCK_ID_TOKEN }),
+    )
+    const startBody = await start?.json()
+    expect(startBody.CredentialCreationOptions.challenge).toBeTruthy()
+
+    await handleMockRequest(
+      cognitoRequest('CompleteWebAuthnRegistration', { AccessToken: MOCK_ID_TOKEN }),
+    )
+
+    const list = await handleMockRequest(
+      cognitoRequest('ListWebAuthnCredentials', { AccessToken: MOCK_ID_TOKEN }),
+    )
+    const listBody = await list?.json()
+    expect(listBody.Credentials).toHaveLength(1)
+    const credentialId = listBody.Credentials[0].CredentialId
+
+    await handleMockRequest(
+      cognitoRequest('DeleteWebAuthnCredential', {
+        AccessToken: MOCK_ID_TOKEN,
+        CredentialId: credentialId,
+      }),
+    )
+
+    const listAfter = await handleMockRequest(
+      cognitoRequest('ListWebAuthnCredentials', { AccessToken: MOCK_ID_TOKEN }),
+    )
+    const listAfterBody = await listAfter?.json()
+    expect(listAfterBody.Credentials).toHaveLength(0)
   })
 
   it('accepts any code in RespondToAuthChallenge and returns tokens', async () => {

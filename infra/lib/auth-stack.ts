@@ -40,6 +40,21 @@ export interface AuthStackProps extends cdk.StackProps {
    * @default "noreply"
    */
   readonly sesFromAddressLocalPart?: string;
+  /**
+   * The fully-qualified domain that WebAuthn/passkey providers must treat
+   * as the relying party (RP) for this pool (e.g. "badgeit.app" for prod,
+   * "dev.badgeit.app" for dev). Must be a registrable-domain match of the
+   * actual origin the browser is on when navigator.credentials.create()/
+   * get() run — a passkey registered under one RP ID cannot be used to
+   * sign in from a different origin. This is the same custom domain
+   * already used as this environment's public site origin (see the
+   * `domainName` CDK context flag in infra/bin/app.ts), which is why it's
+   * threaded in from there rather than hardcoded per-environment here like
+   * sesDomainName is. Required (not optional): passkey support ships to
+   * every environment in the same change, so there's no valid "auth stack
+   * without a relying party ID" state.
+   */
+  readonly passkeyRelyingPartyId: string;
 }
 
 /**
@@ -52,7 +67,14 @@ export interface AuthStackProps extends cdk.StackProps {
  * controls, or bounce/complaint visibility — all of which matter for an
  * OTP-only login flow where every sign-in depends on the email arriving.
  *
- * The USER_AUTH flow allows users to authenticate with just an email code.
+ * The USER_AUTH flow allows users to authenticate with either an emailed
+ * one-time code or a registered passkey (WebAuthn) — Cognito's
+ * SELECT_CHALLENGE mechanism reports, per-account, which of these are
+ * available before any credential is submitted (see
+ * frontend/src/auth/service.ts), so a user with no registered passkey
+ * never sees a passkey prompt. Passkeys are an additional first factor,
+ * never a replacement for email OTP, and still involve no standard
+ * passwords.
  *
  * New users are confirmed the standard Cognito way: `autoVerify: { email:
  * true }` makes SignUp send a real confirmation code to the address given,
@@ -103,8 +125,24 @@ export class AuthStack extends cdk.Stack {
         allowedFirstAuthFactors: {
           password: true, // Cognito requires password auth to remain enabled
           emailOtp: true,
+          passkey: true,
         },
       },
+      // Passkey (WebAuthn) as an additional first-factor option, alongside
+      // email OTP. The relying party ID must match the site's real origin
+      // (see AuthStackProps.passkeyRelyingPartyId doc comment) — this is
+      // why AuthStack now needs the deploy's domain name, unlike before.
+      // No Lambda triggers, IAM, or new AWS resources are introduced —
+      // Cognito manages passkey credential storage internally, same as it
+      // already manages email OTP delivery state.
+      passkeyRelyingPartyId: props.passkeyRelyingPartyId,
+      // PREFERRED (not REQUIRED): user verification (biometric/PIN) is
+      // requested from the authenticator but not hard-required, matching
+      // how most consumer passkey flows behave (Face ID/Touch ID/Windows
+      // Hello all satisfy PREFERRED; REQUIRED would reject authenticators
+      // that can't enforce it, unnecessarily strict for this app's threat
+      // model).
+      passkeyUserVerification: cognito.PasskeyUserVerification.PREFERRED,
       passwordPolicy: {
         minLength: 8,
         requireLowercase: false,
@@ -129,6 +167,10 @@ export class AuthStack extends cdk.Stack {
     this.userPool.node.addDependency(emailIdentity);
 
     // User Pool Client — USER_AUTH flow for passwordless
+    // No new scopes needed for passkey APIs: aws.cognito.signin.user.admin
+    // is granted by default and already covers StartWebAuthnRegistration/
+    // CompleteWebAuthnRegistration/ListWebAuthnCredentials/
+    // DeleteWebAuthnCredential.
     this.userPoolClient = this.userPool.addClient("AppClient", {
       userPoolClientName: `badgeit-app-client-${environment}`,
       authFlows: {

@@ -10,6 +10,7 @@ describe("AuthStack", () => {
     const stack = new AuthStack(app, "TestAuthStack", {
       tags: { project: "badgeit", environment: "test" },
       sesDomainName: "test.badgeit.app",
+      passkeyRelyingPartyId: "test.badgeit.app",
     });
     template = Template.fromStack(stack);
   });
@@ -30,13 +31,20 @@ describe("AuthStack", () => {
       });
     });
 
-    test("enables email OTP in sign-in policy", () => {
+    test("enables email OTP and passkey in sign-in policy", () => {
       template.hasResourceProperties("AWS::Cognito::UserPool", {
         Policies: {
           SignInPolicy: {
-            AllowedFirstAuthFactors: ["PASSWORD", "EMAIL_OTP"],
+            AllowedFirstAuthFactors: ["PASSWORD", "EMAIL_OTP", "WEB_AUTHN"],
           },
         },
+      });
+    });
+
+    test("configures the passkey relying party ID and user verification", () => {
+      template.hasResourceProperties("AWS::Cognito::UserPool", {
+        WebAuthnRelyingPartyID: "test.badgeit.app",
+        WebAuthnUserVerification: "preferred",
       });
     });
 

@@ -69,6 +69,7 @@ pub enum SocialPlatform {
     Calendar,
     Discord,
     Twitch,
+    AwsBuilder,
     Custom,
 }
 

@@ -14,6 +14,7 @@ import { Print3DModal } from '../components/Print3DModal'
 import { DownloadDropdown } from '../components/DownloadDropdown'
 import { HeaderMenu } from '../components/HeaderMenu'
 import { CustomThemeModal } from '../components/CustomThemeModal'
+import { ManagePasskeysModal } from '../components/ManagePasskeysModal'
 import { getRuntimeConfig } from '../config/runtimeConfig'
 import { parseVCard } from '../lib/vcardImport'
 import { DEFAULT_CUSTOM_THEME_COLORS, type CustomThemeColors, type SocialLink, type SocialPlatform, type ThemeId } from '../types/profile'
@@ -21,7 +22,7 @@ import { DEFAULT_CUSTOM_THEME_COLORS, type CustomThemeColors, type SocialLink, t
 const SOCIAL_PLATFORMS: SocialPlatform[] = [
   'custom', 'linkedin', 'github', 'instagram', 'youtube',
   'mastodon', 'bluesky', 'website', 'calendar', 'twitter',
-  'discord', 'twitch',
+  'discord', 'twitch', 'awsbuilder',
 ]
 
 export function EditProfilePage() {
@@ -67,6 +68,7 @@ export function EditProfilePage() {
   const [isDeleting, setIsDeleting] = useState(false)
   const [showQRModal, setShowQRModal] = useState(false)
   const [showPrint3DModal, setShowPrint3DModal] = useState(false)
+  const [showPasskeyModal, setShowPasskeyModal] = useState(false)
   const [profileId, setProfileId] = useState('')
   const [viewCount, setViewCount] = useState<number | null>(null)
   const [openPlatformIndex, setOpenPlatformIndex] = useState<number | null>(null)
@@ -421,6 +423,10 @@ export function EditProfilePage() {
               {
                 label: 'Import from vCard',
                 onClick: () => vcardInputRef.current?.click(),
+              },
+              {
+                label: 'Manage Passkeys',
+                onClick: () => setShowPasskeyModal(true),
               },
               {
                 label: 'About',
@@ -907,6 +913,11 @@ export function EditProfilePage() {
             onClose={() => setShowPrint3DModal(false)}
           />
         )}
+
+        <ManagePasskeysModal
+          isOpen={showPasskeyModal}
+          onClose={() => setShowPasskeyModal(false)}
+        />
 
         <CustomThemeModal
           isOpen={showCustomThemeModal}
