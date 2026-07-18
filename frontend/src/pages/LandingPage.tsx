@@ -245,7 +245,7 @@ export function LandingPage() {
               disabled={isLoading || !email.trim()}
               className="w-full rounded-lg bg-blue-600 px-4 py-3 font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {isLoading ? 'Sending code...' : 'Get started'}
+              {isLoading ? 'Signing in...' : 'Get started'}
             </button>
 
             <Link
