@@ -69,6 +69,16 @@ const authStack = new AuthStack(app, `BadgeTag-Auth-${environment}`, {
     (app.node.tryGetContext("sesDomainName") as string | undefined) ??
     (environment === "prod" ? "badgetag.me" : `${environment}.badgetag.me`),
   passkeyRelyingPartyId: domainNames[0],
+  alertEmail: (() => {
+    const email = app.node.tryGetContext("alertEmail") as string | undefined;
+    if (!email) {
+      throw new Error(
+        'CDK context "alertEmail" is required. Pass it via: --context alertEmail=<address>\n' +
+          "Example: npx cdk deploy --context alertEmail=ops@example.com",
+      );
+    }
+    return email;
+  })(),
 });
 
 const apiStack = new ApiStack(app, `BadgeTag-Api-${environment}`, {

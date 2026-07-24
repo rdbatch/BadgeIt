@@ -40,6 +40,7 @@ function synthFrontendStack(
     tags: { project: "badgetag", environment: "test" },
     sesDomainName: "test.badgetag.me",
     passkeyRelyingPartyId: "test.badgetag.me",
+    alertEmail: "ops@example.com",
     env,
   });
   const apiStack = new ApiStack(app, `${id}Api`, {

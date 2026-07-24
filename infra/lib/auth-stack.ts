@@ -1,5 +1,10 @@
 import * as cdk from "aws-cdk-lib";
+import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
+import * as cw_actions from "aws-cdk-lib/aws-cloudwatch-actions";
 import * as cognito from "aws-cdk-lib/aws-cognito";
+import * as ses from "aws-cdk-lib/aws-ses";
+import * as sns from "aws-cdk-lib/aws-sns";
+import * as sns_subs from "aws-cdk-lib/aws-sns-subscriptions";
 import * as ssm from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 
@@ -54,6 +59,12 @@ export interface AuthStackProps extends cdk.StackProps {
    * without a relying party ID" state.
    */
   readonly passkeyRelyingPartyId: string;
+  /**
+   * Email address to notify when SES reputation alarms fire (bounce rate ≥ 3%
+   * or complaint rate ≥ 0.08%). Pass via CDK context key `alertEmail`.
+   * Note: the SNS email subscription requires manual confirmation after deploy.
+   */
+  readonly alertEmail: string;
 }
 
 /**
@@ -91,6 +102,12 @@ export class AuthStack extends cdk.Stack {
   /** The User Pool Client configured for USER_AUTH flow */
   public readonly userPoolClient: cognito.UserPoolClient;
 
+  /** SES Configuration Set for reputation metrics, attached to Cognito sends */
+  public readonly sesConfigurationSet: ses.ConfigurationSet;
+
+  /** SNS topic receiving SES reputation alarm notifications */
+  public readonly sesAlertsTopic: sns.Topic;
+
   constructor(scope: Construct, id: string, props: AuthStackProps) {
     super(scope, id, props);
 
@@ -104,6 +121,68 @@ export class AuthStack extends cdk.Stack {
     // by a CDK construct, so no in-stack SES resource is required. TODO: import
     // the existing `AWS::SES::EmailIdentity` back into this stack later.
     const fromAddress = `${props.sesFromAddressLocalPart ?? "noreply"}@${props.sesDomainName}`;
+
+    // SES Configuration Set — enables per-environment reputation metrics for
+    // Cognito's OTP/confirmation sends. Attaching this to Cognito's email
+    // config (via configurationSetName below) tags every send so AWS/SES
+    // Reputation.BounceRate and Reputation.ComplaintRate metrics reflect only
+    // this environment's traffic, consistent with the per-env SES domain
+    // isolation already in place.
+    this.sesConfigurationSet = new ses.ConfigurationSet(this, "SesConfigSet", {
+      configurationSetName: `badgetag-${environment}`,
+      reputationMetrics: true,
+    });
+
+    // SNS topic for SES reputation alarm notifications.
+    // Note: email subscriptions require manual confirmation after first deploy —
+    // check the inbox at the alertEmail address for the confirmation link.
+    const alertEmail = props.alertEmail;
+    this.sesAlertsTopic = new sns.Topic(this, "SesAlertsTopic", {
+      topicName: `badgetag-ses-alerts-${environment}`,
+    });
+    this.sesAlertsTopic.addSubscription(
+      new sns_subs.EmailSubscription(alertEmail),
+    );
+
+    // CloudWatch alarms on account-level SES reputation metrics (no dimensions
+    // — SES pauses the whole account if these cross enforcement thresholds).
+    // Alarm before the enforcement line to give time to investigate:
+    //   Bounce:    alarm at 3%  (SES review ~5%, enforcement varies)
+    //   Complaint: alarm at 0.08% (SES enforcement 0.1%)
+    const sesAlarmProps = {
+      period: cdk.Duration.hours(1),
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+    };
+
+    const bounceAlarm = new cloudwatch.Alarm(this, "SesBounceRateAlarm", {
+      alarmName: `badgetag-${environment}-ses-bounce-rate`,
+      alarmDescription: "SES bounce rate ≥ 3% — investigate before SES pauses the account",
+      metric: new cloudwatch.Metric({
+        namespace: "AWS/SES",
+        metricName: "Reputation.BounceRate",
+        statistic: "Average",
+        period: cdk.Duration.hours(1),
+      }),
+      threshold: 0.03,
+      ...sesAlarmProps,
+    });
+    bounceAlarm.addAlarmAction(new cw_actions.SnsAction(this.sesAlertsTopic));
+
+    const complaintAlarm = new cloudwatch.Alarm(this, "SesComplaintRateAlarm", {
+      alarmName: `badgetag-${environment}-ses-complaint-rate`,
+      alarmDescription: "SES complaint rate ≥ 0.08% — investigate before SES pauses the account",
+      metric: new cloudwatch.Metric({
+        namespace: "AWS/SES",
+        metricName: "Reputation.ComplaintRate",
+        statistic: "Average",
+        period: cdk.Duration.hours(1),
+      }),
+      threshold: 0.0008,
+      ...sesAlarmProps,
+    });
+    complaintAlarm.addAlarmAction(new cw_actions.SnsAction(this.sesAlertsTopic));
 
     // Cognito User Pool with native passwordless email OTP.
     // Choice-based authentication (email OTP as first factor) requires the
@@ -147,12 +226,15 @@ export class AuthStack extends cdk.Stack {
         requireSymbols: false,
       },
       // SES-backed email delivery — see the sesDomainName doc comment above
-      // for why this replaced Cognito's built-in sender.
+      // for why this replaced Cognito's built-in sender. configurationSetName
+      // tags Cognito's sends with the per-environment config set so reputation
+      // metrics (and future event destinations) track only this environment.
       email: cognito.UserPoolEmail.withSES({
         fromEmail: fromAddress,
         fromName: "BadgeTag",
         sesRegion: this.region,
         sesVerifiedDomain: props.sesDomainName,
+        configurationSetName: this.sesConfigurationSet.configurationSetName,
       }),
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
@@ -210,6 +292,14 @@ export class AuthStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, "SesFromAddress", {
       value: fromAddress,
+    });
+
+    new cdk.CfnOutput(this, "SesConfigurationSetName", {
+      value: this.sesConfigurationSet.configurationSetName,
+    });
+
+    new cdk.CfnOutput(this, "SesAlertsTopicArn", {
+      value: this.sesAlertsTopic.topicArn,
     });
   }
 }

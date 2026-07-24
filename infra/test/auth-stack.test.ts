@@ -11,6 +11,7 @@ describe("AuthStack", () => {
       tags: { project: "badgetag", environment: "test" },
       sesDomainName: "test.badgetag.me",
       passkeyRelyingPartyId: "test.badgetag.me",
+      alertEmail: "ops@example.com",
     });
     template = Template.fromStack(stack);
   });
@@ -157,5 +158,79 @@ describe("AuthStack", () => {
     for (const userPool of Object.values(userPools)) {
       expect(userPool.Properties.LambdaConfig).toBeUndefined();
     }
+  });
+
+  describe("SES Configuration Set", () => {
+    test("creates a configuration set with reputation metrics enabled", () => {
+      template.hasResourceProperties("AWS::SES::ConfigurationSet", {
+        Name: "badgetag-test",
+        ReputationOptions: {
+          ReputationMetricsEnabled: true,
+        },
+      });
+    });
+
+    test("wires the configuration set to the Cognito User Pool email config", () => {
+      template.hasResourceProperties("AWS::Cognito::UserPool", {
+        EmailConfiguration: {
+          // Resolves to a Ref at synth time — presence is what matters here.
+          ConfigurationSet: Match.anyValue(),
+        },
+      });
+    });
+
+    test("has config set name output with no CloudFormation export", () => {
+      template.hasOutput("SesConfigurationSetName", { Export: Match.absent() });
+    });
+  });
+
+  describe("SES Reputation Alarms", () => {
+    test("creates a bounce rate alarm on AWS/SES namespace at 3% threshold", () => {
+      template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+        Namespace: "AWS/SES",
+        MetricName: "Reputation.BounceRate",
+        Threshold: 0.03,
+        ComparisonOperator: "GreaterThanOrEqualToThreshold",
+        EvaluationPeriods: 1,
+        TreatMissingData: "notBreaching",
+      });
+    });
+
+    test("creates a complaint rate alarm on AWS/SES namespace at 0.08% threshold", () => {
+      template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+        Namespace: "AWS/SES",
+        MetricName: "Reputation.ComplaintRate",
+        Threshold: 0.0008,
+        ComparisonOperator: "GreaterThanOrEqualToThreshold",
+        EvaluationPeriods: 1,
+        TreatMissingData: "notBreaching",
+      });
+    });
+
+    test("creates exactly two SES reputation alarms", () => {
+      const alarms = template.findResources("AWS::CloudWatch::Alarm", {
+        Properties: { Namespace: "AWS/SES" },
+      });
+      expect(Object.keys(alarms)).toHaveLength(2);
+    });
+  });
+
+  describe("SES Alerts SNS Topic", () => {
+    test("creates an SNS topic for SES reputation alerts", () => {
+      template.hasResourceProperties("AWS::SNS::Topic", {
+        TopicName: "badgetag-ses-alerts-test",
+      });
+    });
+
+    test("creates an email subscription on the alerts topic", () => {
+      template.hasResourceProperties("AWS::SNS::Subscription", {
+        Protocol: "email",
+        Endpoint: "ops@example.com",
+      });
+    });
+
+    test("has alerts topic ARN output with no CloudFormation export", () => {
+      template.hasOutput("SesAlertsTopicArn", { Export: Match.absent() });
+    });
   });
 });

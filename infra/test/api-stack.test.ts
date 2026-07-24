@@ -23,6 +23,7 @@ describe("ApiStack", () => {
       tags: { project: "badgetag", environment: "test" },
       sesDomainName: "test.badgetag.me",
       passkeyRelyingPartyId: "test.badgetag.me",
+      alertEmail: "ops@example.com",
       env,
     });
 
@@ -319,6 +320,7 @@ describe("ApiStack", () => {
         tags: { project: "badgetag", environment: "test" },
         sesDomainName: "test.badgetag.me",
         passkeyRelyingPartyId: "test.badgetag.me",
+        alertEmail: "ops@example.com",
         env,
       });
       const apiStack = new ApiStack(app, "SiteUrlApiStack", {
